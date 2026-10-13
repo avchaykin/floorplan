@@ -259,6 +259,7 @@
   const icon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`;
 
   // Per-object dimensions: its own side length, the gap to the nearest other object, the gap to the nearest wall.
+  const RULER_ROUNDING = [0, 1, 5, 10, 50, 100];   // mm steps a free dimension can be rounded to; 0 = as measured
   const MEASURE_TYPES = ['size', 'object', 'wall'];
 
   // Object settings a layer may override; everything else is plan-wide.
@@ -384,7 +385,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
   }
 
   function normalizeDoc(d) {
@@ -441,7 +442,12 @@
     });
     out.compasses = (d.compasses || []).filter(c => [c.x, c.y, c.size].every(Number.isFinite) && c.size > 0)
       .map(c => Object.assign({ id: c.id, x: c.x, y: c.y, size: c.size, rot: Number.isFinite(c.rot) ? c.rot : 0 }, note(c)));
-    const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses).map(o => +o.id || 0)
+    out.rulers = (d.rulers || []).filter(r => [r.x1, r.y1, r.x2, r.y2].every(Number.isFinite)).map(src => {
+      const r = Object.assign({ id: src.id, x1: src.x1, y1: src.y1, x2: src.x2, y2: src.y2, round: RULER_ROUNDING.includes(src.round) ? src.round : 0 }, note(src));
+      if (Number.isFinite(src.real) && src.real > 0) r.real = src.real;
+      return r;
+    });
+    const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses, out.rulers).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
@@ -487,7 +493,7 @@
     if (!sel) return null;
     if (sel.kind === 'object') { const o = doc.objects.find(x => x.id === sel.id); return o ? objLayer(o) : null; }
     if (sel.kind === 'title') { const t = doc.titles.find(x => x.id === sel.id); return t ? layerById(t.layer) : null; }
-    return specialLayer(['dim', 'mark', 'compass'].includes(sel.kind) ? 'dimensions' : 'walls');
+    return specialLayer(['dim', 'mark', 'compass', 'ruler'].includes(sel.kind) ? 'dimensions' : 'walls');
   }
   const selLocked = () => { const layer = selLayer(); return !!layer && layer.frozen; };
   const lockedNote = () => `The “${selLayer().name}” layer is frozen — unfreeze it in Layers to make changes.`;
@@ -510,7 +516,7 @@
     const a = layerById(activeLayer);
     return a && a.kind === 'objects' ? a : doc.layers.slice().reverse().find(l => l.kind === 'objects');
   }
-  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length && !doc.titles.length && !doc.compasses.length;
+  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length && !doc.titles.length && !doc.compasses.length && !doc.rulers.length;
 
   function resetHistory() {
     history = [JSON.stringify(doc)];
@@ -596,7 +602,8 @@
       return { x: o.x - d / 2, y: o.y - d / 2, w: d, h: d };
     }), doc.marks.map(m => ({ x: m.x - 300, y: m.y - 150, w: 600, h: 300 })),
       doc.titles.map(t => ({ x: t.x - 500, y: t.y - 200, w: 1000, h: 400 })),
-      doc.compasses.map(c => ({ x: c.x - c.size / 2, y: c.y - c.size / 2, w: c.size, h: c.size })));
+      doc.compasses.map(c => ({ x: c.x - c.size / 2, y: c.y - c.size / 2, w: c.size, h: c.size })),
+      doc.rulers.map(r => ({ x: Math.min(r.x1, r.x2), y: Math.min(r.y1, r.y2), w: Math.abs(r.x2 - r.x1) || 1, h: Math.abs(r.y2 - r.y1) || 1 })));
     if (!boxes.length || !r.width) {
       view.scale = 0.08; view.ox = 80; view.oy = 80;
       return;
@@ -1157,8 +1164,9 @@
 
   // A dimension between two world points at any angle. With an offset it is drawn beside them
   // (shifted along n, with extension lines); without, straight between them.
-  function freeDimSvg(aw, bw, n, off, text) {
+  function freeDimSvg(aw, bw, n, off, text, selected) {
     const st = planStyle(), a0 = S(aw[0], aw[1]), b0 = S(bw[0], bw[1]);
+    if (selected) st.dimColor = st.dimFontColor = ACCENT;
     if (Math.hypot(b0[0] - a0[0], b0[1] - a0[1]) < 10) return '';
     const a = [a0[0] + n[0] * off, a0[1] + n[1] * off], b = [b0[0] + n[0] * off, b0[1] + n[1] * off];
     let g = '';
@@ -1166,8 +1174,39 @@
     let angle = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
     if (angle >= 90) angle -= 180; else if (angle < -90) angle += 180;   // keep the text upright
     const tx = (a[0] + b[0]) / 2 + n[0] * st.dimFontSize * 0.82, ty = (a[1] + b[1]) / 2 + n[1] * st.dimFontSize * 0.82;
-    return g + line(a, b, `stroke="${st.dimColor}" stroke-width="1"`) + dimEndSvg(a, b, st.dimColor) + dimEndSvg(b, a, st.dimColor) +
+    return g + line(a, b, `stroke="${st.dimColor}" stroke-width="${selected ? 1.8 : 1}"`) + dimEndSvg(a, b, st.dimColor) + dimEndSvg(b, a, st.dimColor) +
       `<text x="${f(tx)}" y="${f(ty)}" transform="rotate(${f(angle)} ${f(tx)} ${f(ty)})" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${st.dimFontColor}" stroke="${PAPER}" stroke-width="3" paint-order="stroke">${text}</text>`;
+  }
+
+  // ---------- Free dimensions ----------
+  // A dimension between any two points. Shows the measured length (optionally rounded) or a typed-in real size.
+
+  const rulerLength = r => Math.hypot(r.x2 - r.x1, r.y2 - r.y1);
+  function rulerText(r) {
+    if (r.real) return fmt(r.real) + '*';
+    const len = rulerLength(r);
+    return fmt(r.round ? Math.round(len / r.round) * r.round : len);
+  }
+
+  function rulerSvg(r, selected, preview) {
+    const len = rulerLength(r);
+    if (!len) return '';
+    // The label sits on the upper side of the line (the left side for a vertical one).
+    let n = [(r.y2 - r.y1) / len, -(r.x2 - r.x1) / len];
+    if (n[1] > 0 || (n[1] === 0 && n[0] > 0)) n = [-n[0], -n[1]];
+    let g = freeDimSvg([r.x1, r.y1], [r.x2, r.y2], n, 0, rulerText(r), selected || preview);
+    if (selected && !specialLayer('dimensions').frozen) {
+      for (const p of [S(r.x1, r.y1), S(r.x2, r.y2)]) g += `<rect x="${f(p[0] - 4)}" y="${f(p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
+    }
+    return g;
+  }
+
+  function hitRuler(p) {
+    for (let i = doc.rulers.length - 1; i >= 0; i--) {
+      const r = doc.rulers[i];
+      if (distToSegment(p, S(r.x1, r.y1), S(r.x2, r.y2)) <= 5) return r;
+    }
+    return null;
   }
 
   function objectMeasuresSvg(o) {
@@ -1206,6 +1245,7 @@
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
         for (const o of doc.objects) if (o.measure && objLayer(o).visible) h.push(objectMeasuresSvg(o));
+        for (const r of doc.rulers) h.push(rulerSvg(r, !!sel && sel.kind === 'ruler' && sel.id === r.id));
         for (const c of doc.compasses) h.push(compassSvg(c, !!sel && sel.kind === 'compass' && sel.id === c.id));
         for (const m of doc.marks) h.push(markSvg(m, !!sel && sel.kind === 'mark' && sel.id === m.id));
       } else {
@@ -1235,6 +1275,7 @@
       }
     }
 
+    if (drag && drag.kind === 'newruler') h.push(rulerSvg({ x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y, round: 0 }, false, true));
     if (drag && drag.kind === 'newobject') {
       const r = dragRect(drag);
       if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '', layer: targetLayer().id, shape: drag.shape }, false, true));
@@ -1272,6 +1313,7 @@
     if (sel.kind === 'mark') return doc.marks.find(m => m.id === sel.id) || null;
     if (sel.kind === 'title') return doc.titles.find(t => t.id === sel.id) || null;
     if (sel.kind === 'compass') return doc.compasses.find(c => c.id === sel.id) || null;
+    if (sel.kind === 'ruler') return doc.rulers.find(r => r.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
     return walls.segments.find(s => s.key === sel.key) || null;
   }
@@ -1409,7 +1451,7 @@
     const side = el.dataset.side ? `[data-side="${el.dataset.side}"]` : '';
     if (el.dataset.measure) return `[data-measure="${el.dataset.measure}"][data-mside="${el.dataset.mside}"]`;
     for (const k of ['k', 'set', 'lset', 'ofill', 'oflag', 'tcol']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
-    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer']) if (k in el.dataset) return `[data-${k}]`;
+    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer', 'rround', 'rreal']) if (k in el.dataset) return `[data-${k}]`;
     return null;
   }
 
@@ -1458,6 +1500,8 @@
       h = `<h3>New title</h3><p>Click on the plan to place a title. It goes on the highlighted layer: “${esc(titleTargetLayer().name)}”.</p>`;
     } else if (tool === 'compass') {
       h = '<h3>New compass rose</h3><p>Click on the plan to place it. It belongs to the Dimensions layer; turn it so that N points to north.</p>';
+    } else if (tool === 'ruler') {
+      h = '<h3>New free dimension</h3><p>Drag from the start point to the end point. It can go anywhere and snaps to the grid and to wall edges; hold Alt to place it freely.</p>';
     } else if (tool === 'mark') {
       h = '<h3>New ceiling height mark</h3>' + field('Ceiling height', 'height', defaults.mark.height) +
         '<p>Click on the plan to place the mark. It belongs to the Dimensions layer and uses the dimension font and colours.</p>';
@@ -1480,6 +1524,15 @@
         `<label class="field">Font size<input type="number" min="6" max="200" data-tsize placeholder="${inherited.titleFontSize}" value="${obj.fontSize || ''}"><span>px</span></label>` +
         colourRow('Font colour', 'data-tcol', 'fontColor', obj.fontColor, titlePairs(obj), 'ink') +
         (obj.font || obj.fontSize || obj.fontColor ? '<div class="row"><button data-act="defaultTitleStyle">Use default style</button></div>' : '<p>Using the title style of its layer.</p>') +
+        descriptionField() +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
+    } else if (sel && sel.kind === 'ruler') {
+      h = `<h3>Free dimension</h3><p>Measured: ${fmt(rulerLength(obj))} ${doc.units}</p>` +
+        `<label class="field">Round to<select data-rround>${RULER_ROUNDING.map(v => `<option value="${v}"${obj.round === v ? ' selected' : ''}>${v ? fmt(v) + ' ' + doc.units : 'No rounding'}</option>`).join('')}</select></label>` +
+        `<label class="field">Real size<input type="number" min="0" step="${UNITS[doc.units].step}" data-rreal placeholder="—" value="${obj.real ? fmt(obj.real) : ''}"><span>${doc.units}</span></label>` +
+        '<p>A real size is shown instead of the measured one, marked with *. Leave it empty to show the measured length.</p>' +
+        field('Start X', 'x1', obj.x1) + field('Start Y', 'y1', obj.y1) + field('End X', 'x2', obj.x2) + field('End Y', 'y2', obj.y2) +
+        '<p>Drag an end square to move that end, or the line to move it all.</p>' +
         descriptionField() +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'compass') {
@@ -1642,6 +1695,13 @@
       turned.rot = normAngle(Number(el.value) || 0);
       return 'doc';
     }
+    const ruler = sel && sel.kind === 'ruler' ? selectedObject() : null;
+    if (ruler && 'rround' in ds) { ruler.round = Number(el.value) || 0; return 'doc'; }
+    if (ruler && 'rreal' in ds) {
+      const mm = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
+      if (mm > 0) ruler.real = mm; else delete ruler.real;
+      return 'doc';
+    }
     const title = sel && sel.kind === 'title' ? selectedObject() : null;
     if (title) {
       if ('ttext' in ds) { title.text = live ? el.value : el.value.trim() || 'Title'; return 'doc'; }
@@ -1666,7 +1726,7 @@
     const target = toolMode ? defaults[tool] : selectedObject();
     if (!target) return null;
     let v = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
-    if (k !== 'x' && k !== 'y') v = Math.max(v, k === 'sillDepth' ? 0 : 10);
+    if (!/^[xy][12]?$/.test(k)) v = Math.max(v, k === 'sillDepth' ? 0 : 10);   // positions may be negative, sizes not
     target[k] = v;
     return toolMode ? 'defaults' : 'doc';
   }
@@ -1781,6 +1841,7 @@
     else if (sel.kind === 'mark') doc.marks = doc.marks.filter(m => m.id !== sel.id);
     else if (sel.kind === 'title') doc.titles = doc.titles.filter(t => t.id !== sel.id);
     else if (sel.kind === 'compass') doc.compasses = doc.compasses.filter(c => c.id !== sel.id);
+    else if (sel.kind === 'ruler') doc.rulers = doc.rulers.filter(r => r.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
     else if (sel.kind === 'dim') {
       const dim = selectedObject();
@@ -1804,6 +1865,7 @@
     mark: 'Click to place a ceiling height mark · Esc to finish',
     title: 'Click to place a title on the highlighted layer · Esc to cancel',
     compass: 'Click to place a compass rose · Esc to cancel',
+    ruler: 'Drag from start to end to add a free dimension · Alt disables snapping · Esc to cancel',
     door: 'Click a wall to place a door · Esc to finish',
     doorway: 'Click a wall to place a doorway · Esc to finish',
     window: 'Click a wall to place a window · Esc to finish',
@@ -1848,6 +1910,9 @@
       rebuild();
       remapHidden(dx, dy);
       commit();
+    } else if (sel.kind === 'ruler') {
+      obj.x1 += dx; obj.x2 += dx; obj.y1 += dy; obj.y2 += dy;
+      commit();
     } else if (['object', 'mark', 'title', 'compass'].includes(sel.kind)) {
       obj.x += dx; obj.y += dy;
       commit();
@@ -1891,11 +1956,16 @@
       return;
     }
     const toolLayer = tool in OBJECT_TOOLS ? targetLayer() : tool === 'title' ? titleTargetLayer()
-      : tool === 'mark' || tool === 'compass' ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
+      : ['mark', 'compass', 'ruler'].includes(tool) ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
     if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
       const a = snapPoint(w, e);
       drag = { kind: 'newwall', a, b: a };
+      return;
+    }
+    if (tool === 'ruler') {
+      const a = snapPoint(w, e);
+      drag = { kind: 'newruler', a, b: a };
       return;
     }
     if (tool === 'title' || tool === 'compass') {
@@ -1939,6 +2009,11 @@
         drag = { kind: 'resize', rect, handle: hp.id, orig: Object.assign({}, rect) };
         return;
       }
+    }
+    if (sel && sel.kind === 'ruler' && !selLocked()) {
+      const r = selectedObject();
+      const end = r && [1, 2].find(i => { const q = S(r['x' + i], r['y' + i]); return Math.abs(q[0] - p.x) <= 7 && Math.abs(q[1] - p.y) <= 7; });
+      if (end) { drag = { kind: 'rulerend', o: r, end }; return; }
     }
     if (sel && sel.kind === 'compass' && !selLocked()) {
       const c = selectedObject();
@@ -1992,6 +2067,12 @@
         if (compass) {
           sel = { kind: 'compass', id: compass.id };
           if (free) drag = { kind: 'moveobject', o: compass, w0: w, orig: { x: compass.x, y: compass.y } };
+          return renderAll();
+        }
+        const ruler = hitRuler(p);
+        if (ruler) {
+          sel = { kind: 'ruler', id: ruler.id };
+          if (free) drag = { kind: 'moveruler', o: ruler, w0: w, orig: Object.assign({}, ruler) };
           return renderAll();
         }
         const mark = hitMark(p);
@@ -2060,6 +2141,14 @@
       const step = e.altKey ? 1 : 15;
       const ang = Math.atan2(w.y - drag.o.y, w.x - drag.o.x) * 180 / Math.PI + 90;
       drag.o.rot = normAngle(Math.round(ang / step) * step);
+    } else if (drag.kind === 'newruler') {
+      drag.b = snapPoint(w, e);
+    } else if (drag.kind === 'rulerend') {
+      const q = snapPoint(w, e);
+      drag.o['x' + drag.end] = q.x; drag.o['y' + drag.end] = q.y;
+    } else if (drag.kind === 'moveruler') {
+      const dx = snapv(w.x - drag.w0.x, e), dy = snapv(w.y - drag.w0.y, e), o0 = drag.orig;
+      Object.assign(drag.o, { x1: o0.x1 + dx, y1: o0.y1 + dy, x2: o0.x2 + dx, y2: o0.y2 + dy });
     } else if (drag.kind === 'movevertex') {
       const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) });
       drag.o.points[drag.index] = [l.x, l.y];
@@ -2116,6 +2205,14 @@
     drag = null;
     svg.classList.remove('panning');
     if (!d) return;
+    if (d.kind === 'newruler') {
+      if (d.a.x === d.b.x && d.a.y === d.b.y) return render();   // a click without a drag adds nothing
+      const r = { id: doc.nextId++, x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y, round: 0 };
+      doc.rulers.push(r);
+      setTool('select');
+      sel = { kind: 'ruler', id: r.id };
+      return commit();
+    }
     if (d.kind === 'movevertex') {
       normalisePolygon(d.o);
       return commit();
@@ -2139,7 +2236,7 @@
       if (d.dx || d.dy) remapHidden(d.dx, d.dy);
       return commit();
     }
-    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject', 'movemark', 'resizecompass'].includes(d.kind)) return commit();
+    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject', 'movemark', 'resizecompass', 'rulerend', 'moveruler'].includes(d.kind)) return commit();
     render();
   }
   svg.addEventListener('dblclick', () => { if (tool === 'polygon' && polyDraft.length) finishPolygon(); });
@@ -2177,11 +2274,11 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && ['wall', 'opening', 'object', 'mark', 'title', 'compass'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && ['wall', 'opening', 'object', 'mark', 'title', 'compass', 'ruler'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', t: 'title', c: 'compass' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', m: 'ruler', t: 'title', c: 'compass' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
