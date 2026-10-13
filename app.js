@@ -374,7 +374,8 @@
     hIndex = 0;
   }
 
-  function commit() {
+  // Records the current state as one undo step and saves it. `keepPanel` leaves the side panel untouched.
+  function commit(keepPanel) {
     rebuild();
     const s = JSON.stringify(doc);
     if (s !== history[hIndex]) {
@@ -383,7 +384,7 @@
       hIndex++;
       scheduleSave();
     }
-    renderAll();
+    renderAll(keepPanel);
   }
 
   function stepHistory(d) {
@@ -1003,6 +1004,17 @@
     commit();
   });
 
+  let panelView = null;     // what the side panel currently shows
+  let panelSource = null;   // the control whose change is being committed
+  let liveDirty = false;    // typed changes shown on the plan but not yet committed
+
+  // Selector that finds the same control again after the panel has been rebuilt.
+  function controlKey(el) {
+    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]`;
+    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont']) if (k in el.dataset) return `[data-${k}]`;
+    return null;
+  }
+
   function renderPanel() {
     const obj = selectedObject();
     if (sel && !obj) sel = null;
@@ -1093,7 +1105,21 @@
       }
       h += '</details>';
     }
+    // Rebuilding replaces every control, so keep the keyboard focus on the same field afterwards.
+    const view = JSON.stringify([tool, sel, showSettings, layerPanel]);
+    const active = panel.contains(document.activeElement) ? document.activeElement : null;
+    // A dropdown or colour picker that was just opened would be closed by a rebuild; it refreshes on its own change.
+    if (active && active !== panelSource && view === panelView && (active.tagName === 'SELECT' || active.type === 'color')) return;
+    const key = active && controlKey(active);
+    const caret = active && (active.type === 'text' || active.tagName === 'TEXTAREA') ? [active.selectionStart, active.selectionEnd] : null;
+    panelView = view;
     panel.innerHTML = h;
+    const again = key && panel.querySelector(key);
+    if (again) {
+      again.focus();
+      if (caret) again.setSelectionRange(caret[0], caret[1]);
+      else if (again.type === 'number') again.select();
+    }
   }
 
   function applyLayerSetting(input) {
@@ -1106,75 +1132,79 @@
     const value = input.type === 'number' ? Number(input.value) : input.value;
     doc.settings = cleanSettings(Object.assign({}, doc.settings, { [key]: value }));
   }
-  // Live preview while a colour is being picked or a number typed; committed on change.
   function applyObjectFill(input) {
     const o = selectedObject(), key = input.dataset.ofill;
     if (input.value) o[key] = input.value; else delete o[key];
   }
+  // Applies one side-panel control to the plan. `live` is true while the user is still typing.
+  // Returns 'doc' if the plan changed, 'defaults' if a tool default changed, null if nothing was applied.
+  function applyPanelInput(el, live) {
+    const ds = el.dataset;
+    if (live && el.type === 'number' && el.value.trim() === '') return null;   // half-typed number: wait for a digit
+    const object = sel && sel.kind === 'object' ? selectedObject() : null;
+    if (ds.ofill && object) { applyObjectFill(el); return 'doc'; }
+    if (ds.lset && layerPanel) { applyLayerSetting(el); return 'doc'; }
+    if ('lname' in ds && layerPanel) {
+      const layer = layerById(layerPanel), name = el.value.trim();
+      if (name) layer.name = name;
+      return 'doc';
+    }
+    if (ds.oflag && object) {
+      if (el.checked) object[ds.oflag] = true; else delete object[ds.oflag];
+      return 'doc';
+    }
+    if ('olayer' in ds && object) { object.layer = el.value; return 'doc'; }
+    // Text is trimmed only once editing ends, so spaces can be typed mid-name.
+    if ('name' in ds && object) { object.name = live ? el.value : el.value.trim(); return 'doc'; }
+    if ('desc' in ds && object) { object.description = live ? el.value : el.value.trim(); return 'doc'; }
+    if ('rot' in ds && object) { object.rot = normAngle(Number(el.value) || 0); return 'doc'; }
+    if (ds.set) { applySetting(el); return 'doc'; }
+    if ('real' in ds && sel && sel.kind === 'dim') {
+      const mm = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
+      if (mm > 0) doc.realDimensions[sel.key] = mm; else delete doc.realDimensions[sel.key];
+      return 'doc';
+    }
+    const k = ds.k;
+    if (!k) return null;
+    const toolMode = tool in defaults;
+    const target = toolMode ? defaults[tool] : selectedObject();
+    if (!target) return null;
+    let v = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
+    if (k !== 'x' && k !== 'y') v = Math.max(v, k === 'sillDepth' ? 0 : 10);
+    target[k] = v;
+    return toolMode ? 'defaults' : 'doc';
+  }
+
+  // Every keystroke updates the plan at once; the panel itself is left alone so the field keeps focus.
   panel.addEventListener('input', e => {
-    if (e.target.dataset.ofill && sel && sel.kind === 'object') { applyObjectFill(e.target); return render(); }
-    if (e.target.dataset.lset && layerPanel) { applyLayerSetting(e.target); return render(); }
-    if (!e.target.dataset.set) return;
-    applySetting(e.target);
-    render();
+    const changed = applyPanelInput(e.target, true);
+    if (changed === 'doc') { liveDirty = true; rebuild(); renderLayers(); render(); }
+    else if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
   });
 
   const normAngle = a => ((Math.round(a) % 360) + 360) % 360;
 
+  // Leaving the field (or Enter) makes the edit final: one undo step, saved, panel refreshed.
+  // Only the panel refresh waits a tick so that, when the user is moving to another field, focus has landed there first.
   panel.addEventListener('change', e => {
-    if (e.target.dataset.ofill && sel && sel.kind === 'object') {
-      applyObjectFill(e.target);
-      return commit();
-    }
-    if (e.target.dataset.lset && layerPanel) {
-      applyLayerSetting(e.target);
-      return commit();
-    }
-    if ('lname' in e.target.dataset && layerPanel) {
-      const layer = layerById(layerPanel);
-      layer.name = e.target.value.trim() || layer.name;
-      return commit();
-    }
-    if (e.target.dataset.oflag && sel && sel.kind === 'object') {
-      const o = selectedObject();
-      if (e.target.checked) o[e.target.dataset.oflag] = true; else delete o[e.target.dataset.oflag];
-      return commit();
-    }
-    if ('olayer' in e.target.dataset && sel && sel.kind === 'object') {
-      selectedObject().layer = e.target.value;
-      return commit();
-    }
-    if (sel && sel.kind === 'object' && ['name', 'rot', 'desc'].some(k => k in e.target.dataset)) {
-      const o = selectedObject();
-      if ('name' in e.target.dataset) o.name = e.target.value.trim();
-      else if ('desc' in e.target.dataset) o.description = e.target.value.trim();
-      else o.rot = normAngle(Number(e.target.value) || 0);
-      return commit();
-    }
-    if (e.target.dataset.set) {
-      applySetting(e.target);
-      return commit();
-    }
-    if ('real' in e.target.dataset && sel && sel.kind === 'dim') {
-      const mm = Math.round((Number(e.target.value) || 0) * UNITS[doc.units].factor);
-      if (mm > 0) doc.realDimensions[sel.key] = mm; else delete doc.realDimensions[sel.key];
-      return commit();
-    }
-    const k = e.target.dataset.k;
-    if (!k) return;
-    const toolMode = tool in defaults;
-    const target = toolMode ? defaults[tool] : selectedObject();
-    if (!target) return;
-    let v = Math.round((Number(e.target.value) || 0) * UNITS[doc.units].factor);
-    if (k !== 'x' && k !== 'y') v = Math.max(v, k === 'sillDepth' ? 0 : 10);
-    target[k] = v;
-    if (toolMode) {
-      localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
+    const src = e.target, changed = applyPanelInput(src, false);
+    if (!changed) return;
+    if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
+    else { liveDirty = false; commit(true); }
+    setTimeout(() => {
+      panelSource = src;
       renderPanel();
-    } else {
-      commit();
-    }
+      render();
+      panelSource = null;
+    }, 0);
   });
+
+  // Clicking anywhere outside the panel also makes typed changes final, even if the field never reports a change.
+  document.addEventListener('pointerdown', e => {
+    if (!liveDirty || panel.contains(e.target)) return;
+    liveDirty = false;
+    commit();
+  }, true);
 
   // Pointing at a row of the hidden-dimensions list previews that dimension on the plan.
   function setPreviewDim(key) {
@@ -1268,10 +1298,10 @@
     renderAll();
   }
 
-  function renderAll() {
+  function renderAll(keepPanel) {
     loadGoogleFonts();
     renderLayers();
-    renderPanel();   // may drop a selection that is no longer allowed, so it runs before drawing
+    if (!keepPanel) renderPanel();   // may drop a selection that is no longer allowed, so it runs before drawing
     render();
     syncUnits();
     $('#btnUndo').disabled = hIndex <= 0;
