@@ -201,7 +201,7 @@
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
     for (const [k, v] of Object.entries(d.realDimensions || {})) if (Number.isFinite(v) && v > 0) out.realDimensions[k] = v;
     out.objects = (d.objects || []).filter(o => [o.x, o.y, o.w, o.h].every(Number.isFinite) && o.w > 0 && o.h > 0)
-      .map(o => ({ id: o.id, name: typeof o.name === 'string' ? o.name : '', x: o.x, y: o.y, w: o.w, h: o.h, rot: Number.isFinite(o.rot) ? o.rot : 0 }));
+      .map(o => ({ id: o.id, name: typeof o.name === 'string' ? o.name : '', description: typeof o.description === 'string' ? o.description : '', x: o.x, y: o.y, w: o.w, h: o.h, rot: Number.isFinite(o.rot) ? o.rot : 0 }));
     const ids = out.walls.concat(out.openings, out.objects).map(o => +o.id || 0);
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
@@ -746,6 +746,7 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
+        `<label class="note">Description<textarea data-desc rows="4" placeholder="Notes about this object; not shown on the plan">${esc(obj.description || '')}</textarea></label>` +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
@@ -802,9 +803,10 @@
   const normAngle = a => ((Math.round(a) % 360) + 360) % 360;
 
   panel.addEventListener('change', e => {
-    if (sel && sel.kind === 'object' && ('name' in e.target.dataset || 'rot' in e.target.dataset)) {
+    if (sel && sel.kind === 'object' && ['name', 'rot', 'desc'].some(k => k in e.target.dataset)) {
       const o = selectedObject();
       if ('name' in e.target.dataset) o.name = e.target.value.trim();
+      else if ('desc' in e.target.dataset) o.description = e.target.value.trim();
       else o.rot = normAngle(Number(e.target.value) || 0);
       return commit();
     }
@@ -1108,7 +1110,7 @@
     if (d.kind === 'newobject') {
       let r = dragRect(d);
       if (!r.w || !r.h) r = { x: d.a.x - 500, y: d.a.y - 300, w: 1000, h: 600 };   // plain click: standard size
-      const o = { id: doc.nextId++, name: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0 };
+      const o = { id: doc.nextId++, name: '', description: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0 };
       doc.objects.push(o);
       setTool('select');
       sel = { kind: 'object', id: o.id };
