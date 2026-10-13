@@ -92,6 +92,24 @@
       border-left: 1px solid var(--border);
     }
     #panel { flex: 1; min-height: 0; padding: 12px; overflow-y: auto; }
+    #layers { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+    .layers-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .layers-head h3 { margin: 0; font-size: 13px; }
+    .layer-tools { display: flex; gap: 2px; }
+    #layers button { display: flex; padding: 2px; border-color: transparent; background: none; }
+    #layers button:hover:not(:disabled) { background: #eef1f5; }
+    #layers button.off { color: #b6bcc5; }
+    #layers button.on { color: var(--accent); }
+    #layers svg { display: block; pointer-events: none; }
+    .layer-list { list-style: none; margin: 0; padding: 0; max-height: 26vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+    .layer-list li { display: flex; align-items: center; gap: 2px; padding: 2px 6px 2px 2px; cursor: pointer; }
+    .layer-list li + li { border-top: 1px solid var(--border); }
+    .layer-list li.active { background: #e3eefd; }
+    .layer-list .lname { flex: 1; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .layer-list .lkind { color: var(--muted); font-size: 11px; }
+    .layer-list li.hidden-layer .lname { color: var(--muted); text-decoration: line-through; }
+    #panel label.field em { font-style: normal; }
+    #panel label.field b.ovr { color: var(--accent); font-size: 9px; vertical-align: 1px; }
     #calc { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
     #calcInput { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
     #calcResult { margin: 4px 2px 8px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
@@ -197,6 +215,7 @@
 
   <aside id="side">
     <div id="panel"></div>
+    <div id="layers"></div>
     <div id="calc">
       <input id="calcInput" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Calculator" aria-label="Calculator expression">
       <div id="calcResult">&nbsp;</div>

@@ -204,6 +204,56 @@
 
   const FILLS = { solid: 'Solid', diagLeft: 'Diagonal left ╲', diagRight: 'Diagonal right ╱', cross: 'Cross-hatch' };
   const isColour = v => /^#[0-9a-f]{6}$/i.test(v);
+  // Inline icon paths: Material Design Icons (pictogrammers.com), Apache License 2.0.
+  const ICONS = {
+    eye: 'M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9M12,4.5C17,4.5 21.27,7.61 23,12C21.27,16.39 17,19.5 12,19.5C7,19.5 2.73,16.39 1,12C2.73,7.61 7,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C15.76,17.5 19.17,15.36 20.82,12C19.17,8.64 15.76,6.5 12,6.5C8.24,6.5 4.83,8.64 3.18,12Z',
+    eyeOff: 'M2,5.27L3.28,4L20,20.72L18.73,22L15.65,18.92C14.5,19.3 13.28,19.5 12,19.5C7,19.5 2.73,16.39 1,12C1.69,10.24 2.79,8.69 4.19,7.46L2,5.27M12,9A3,3 0 0,1 15,12C15,12.35 14.94,12.69 14.83,13L11,9.17C11.31,9.06 11.65,9 12,9M12,4.5C17,4.5 21.27,7.61 23,12C22.18,14.08 20.79,15.88 19,17.19L17.58,15.76C18.94,14.82 20.06,13.54 20.82,12C19.17,8.64 15.76,6.5 12,6.5C10.91,6.5 9.84,6.68 8.84,7L7.3,5.47C8.74,4.85 10.33,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C12.69,17.5 13.37,17.43 14,17.29L11.72,15C10.29,14.85 9.15,13.71 9,12.28L5.6,8.87C4.61,9.72 3.78,10.78 3.18,12Z',
+    lock: 'M12,17C10.89,17 10,16.1 10,15C10,13.89 10.89,13 12,13A2,2 0 0,1 14,15A2,2 0 0,1 12,17M18,20V10H6V20H18M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V10C4,8.89 4.89,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z',
+    lockOpen: 'M10 13C11.1 13 12 13.89 12 15C12 16.11 11.11 17 10 17S8 16.11 8 15 8.9 13 10 13M18 1C15.24 1 13 3.24 13 6V8H4C2.9 8 2 8.9 2 10V20C2 21.1 2.9 22 4 22H16C17.1 22 18 21.1 18 20V10C18 8.9 17.1 8 16 8H15V6C15 4.34 16.34 3 18 3S21 4.34 21 6V8H23V6C23 3.24 20.76 1 18 1M16 10V20H4V10H16Z',
+    up: 'M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z',
+    down: 'M11,4H13V16L18.5,10.5L19.92,11.92L12,19.84L4.08,11.92L5.5,10.5L11,16V4Z',
+    plus: 'M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z',
+    remove: 'M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z',
+    cog: 'M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z',
+  };
+  const icon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`;
+
+  // Object settings a layer may override; everything else is plan-wide.
+  const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
+
+  // Layers are stored bottom to top. Walls (with doors and windows) and dimensions each have one fixed layer.
+  function defaultLayers() {
+    return [
+      { id: 'walls', kind: 'walls', name: 'Walls', visible: true, frozen: false },
+      { id: 'objects', kind: 'objects', name: 'Objects', visible: true, frozen: false, settings: {} },
+      { id: 'dimensions', kind: 'dimensions', name: 'Dimensions', visible: true, frozen: false },
+    ];
+  }
+
+  function cleanLayers(raw, settings) {
+    const out = [], seen = new Set();
+    for (const l of Array.isArray(raw) ? raw : []) {
+      if (!l || !['walls', 'dimensions', 'objects'].includes(l.kind)) continue;
+      const id = l.kind === 'objects' ? String(l.id || '') : l.kind;
+      if (!id || seen.has(id) || (l.kind === 'objects' && (id === 'walls' || id === 'dimensions'))) continue;
+      seen.add(id);
+      const layer = { id, kind: l.kind, name: { walls: 'Walls', dimensions: 'Dimensions' }[l.kind], visible: l.visible !== false, frozen: l.frozen === true };
+      if (l.kind === 'objects') {
+        layer.name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : 'Layer';
+        layer.settings = {};
+        const given = l.settings && typeof l.settings === 'object' ? l.settings : {};
+        const merged = cleanSettings(Object.assign({}, settings, given));
+        for (const k of OBJ_SETTING_KEYS) if (k in given) layer.settings[k] = merged[k];
+      }
+      out.push(layer);
+    }
+    const defs = defaultLayers();
+    if (!out.some(l => l.kind === 'walls')) out.unshift(defs[0]);
+    if (!out.some(l => l.kind === 'objects')) out.splice(out.findIndex(l => l.kind === 'walls') + 1, 0, defs[1]);
+    if (!out.some(l => l.kind === 'dimensions')) out.push(defs[2]);
+    return out;
+  }
+
   const DIM_ENDS = { arrow: 'Arrows, filled', vNarrow: 'V-arrows, narrow', vWide: 'V-arrows, wide', tick: 'Ticks', dot: 'Dots', none: 'None' };
 
   // Appearance settings, stored with each plan.
@@ -236,7 +286,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings(), layers: defaultLayers() };
   }
 
   function normalizeDoc(d) {
@@ -251,14 +301,18 @@
     out.objects = (d.objects || []).filter(o => [o.x, o.y, o.w, o.h].every(Number.isFinite) && o.w > 0 && o.h > 0).map(src => {
       const o = {
         id: src.id, name: typeof src.name === 'string' ? src.name : '', description: typeof src.description === 'string' ? src.description : '',
-        x: src.x, y: src.y, w: src.w, h: src.h, rot: Number.isFinite(src.rot) ? src.rot : 0,
+        x: src.x, y: src.y, w: src.w, h: src.h, rot: Number.isFinite(src.rot) ? src.rot : 0, layer: src.layer,
       };
       // Fill overrides are optional; without them the object follows the plan settings.
       if (FILLS[src.fillStyle]) o.fillStyle = src.fillStyle;
       if (isColour(src.fillColor)) o.fillColor = src.fillColor;
       return o;
     });
-    const ids = out.walls.concat(out.openings, out.objects).map(o => +o.id || 0);
+    out.layers = cleanLayers(d.layers, out.settings);
+    const objectLayers = out.layers.filter(l => l.kind === 'objects');
+    for (const o of out.objects) if (!objectLayers.some(l => l.id === o.layer)) o.layer = objectLayers[0].id;
+    const ids = out.walls.concat(out.openings, out.objects).map(o => +o.id || 0)
+      .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
   }
@@ -278,6 +332,8 @@
   let history = [], hIndex = -1;
   let tool = 'select';
   let showSettings = false;   // side panel shows the plan settings
+  let layerPanel = null;      // id of the layer whose settings the side panel shows
+  let activeLayer = null;     // id of the layer highlighted in the Layers list; new objects go to it
   let sel = null;       // {kind: 'wall'|'opening', id} | {kind: 'dim'|'edge', key}
   let drag = null;
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
@@ -287,7 +343,21 @@
   const view = { scale: 0.08, ox: 80, oy: 80 };   // screen px = mm * scale + offset
 
   const rebuild = () => { walls = Geo.buildWalls(doc.walls); };
-  const freshDoc = () => Object.assign(newDoc(), { units: doc.units, settings: Object.assign({}, doc.settings) });
+  const freshDoc = () => Object.assign(newDoc(), { units: doc.units, settings: JSON.parse(JSON.stringify(doc.settings)), layers: JSON.parse(JSON.stringify(doc.layers)) });
+
+  const layerById = id => doc.layers.find(l => l.id === id);
+  const specialLayer = kind => doc.layers.find(l => l.kind === kind);
+  const usable = layer => layer.visible && !layer.frozen;
+  const whyBlocked = layer => !layer.visible ? `The “${layer.name}” layer is hidden — switch it on in Layers first.`
+    : layer.frozen ? `The “${layer.name}” layer is frozen — unfreeze it in Layers first.` : null;
+  const objLayer = o => layerById(o.layer) || specialLayer('objects');
+  // Effective object defaults: plan settings with the layer's overrides on top.
+  const objSettings = o => Object.assign({}, doc.settings, objLayer(o).settings);
+  // Layer that receives new objects: the highlighted one if it holds objects, else the topmost object layer.
+  function targetLayer() {
+    const a = layerById(activeLayer);
+    return a && a.kind === 'objects' ? a : doc.layers.slice().reverse().find(l => l.kind === 'objects');
+  }
   const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length;
 
   function resetHistory() {
@@ -320,6 +390,7 @@
   function setDoc(d) {
     doc = d;
     sel = null;
+    layerPanel = activeLayer = null;
     rebuild();
     resetHistory();
     fitView();
@@ -453,21 +524,21 @@
     return list;
   }
 
-  function hitObject(w) {
+  function hitObject(w, layerId) {
     for (let i = doc.objects.length - 1; i >= 0; i--) {
       const o = doc.objects[i], l = objToLocal(o, w);
-      if (Math.abs(l.x) <= o.w / 2 && Math.abs(l.y) <= o.h / 2) return o;
+      if (o.layer === layerId && Math.abs(l.x) <= o.w / 2 && Math.abs(l.y) <= o.h / 2) return o;
     }
     return null;
   }
 
   // Object interior: a plain colour, or hatch lines in that colour over white. The hatch turns with the object.
   function objectFillSvg(o, pw, ph) {
-    const style = o.fillStyle || doc.settings.objFillStyle, color = o.fillColor || doc.settings.objFillColor;
+    const st = objSettings(o), style = o.fillStyle || st.objFillStyle, color = o.fillColor || st.objFillColor;
     const box = `x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}"`;
     if (style === 'solid') return `<rect ${box} fill="${color}" fill-opacity=".85"/>`;
     const id = 'objfill-' + (o.id || 'new');
-    const n = doc.settings.objHatchSpacing;   // pattern tile size; extra stubs keep the lines joined at tile corners
+    const n = st.objHatchSpacing;   // pattern tile size; extra stubs keep the lines joined at tile corners
     const left = `M0 0L${n} ${n}M-2 ${n - 2}L2 ${n + 2}M${n - 2} -2L${n + 2} 2`, right = `M0 ${n}L${n} 0M-2 2L2 -2M${n - 2} ${n + 2}L${n + 2} ${n - 2}`;
     const d = style === 'diagLeft' ? left : style === 'diagRight' ? right : left + right;
     return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${n}" height="${n}"><path d="${d}" stroke="${color}" stroke-width="1.2" fill="none"/></pattern></defs>` +
@@ -475,7 +546,7 @@
   }
 
   function objectSvg(o, selected, preview) {
-    const st = doc.settings, [cx, cy] = S(o.x, o.y), pw = o.w * view.scale, ph = o.h * view.scale;
+    const st = objSettings(o), [cx, cy] = S(o.x, o.y), pw = o.w * view.scale, ph = o.h * view.scale;
     const stroke = selected || preview ? ACCENT : st.objBorderColor;
     const border = selected || preview ? Math.max(st.objBorderSize, selected ? 2 : 1.2) : st.objBorderSize;
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
@@ -718,14 +789,21 @@
     const box = svg.getBoundingClientRect();
     const h = [gridSvg(box.width, box.height)];
 
-    if (walls.loops.length) {
-      const d = walls.loops.map(l => poly(l.points.map(p => S(p[0], p[1])))).join('');
-      h.push(`<path d="${d}" fill="${doc.settings.wallColor}" fill-rule="evenodd"/>`);
+    // Layers are drawn bottom to top; hidden ones are skipped.
+    for (const layer of doc.layers) {
+      if (!layer.visible) continue;
+      if (layer.kind === 'walls') {
+        if (walls.loops.length) {
+          const d = walls.loops.map(l => poly(l.points.map(p => S(p[0], p[1])))).join('');
+          h.push(`<path d="${d}" fill="${doc.settings.wallColor}" fill-rule="evenodd"/>`);
+        }
+        for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
+      } else if (layer.kind === 'dimensions') {
+        for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
+      } else {
+        for (const o of doc.objects) if (o.layer === layer.id) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
+      }
     }
-
-    for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
-    for (const o of doc.objects) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
-    for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
 
     if (sel && sel.kind === 'edge') {
       const seg = walls.segments.find(s => s.key === sel.key);
@@ -742,7 +820,7 @@
 
     if (drag && drag.kind === 'newobject') {
       const r = dragRect(drag);
-      if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '' }, false, true));
+      if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '', layer: targetLayer().id }, false, true));
     }
     if (drag && drag.kind === 'newwall') {
       const r = dragRect(drag);
@@ -781,34 +859,123 @@
 
   const TITLES = { door: 'Door', doorway: 'Doorway', window: 'Window' };
 
+  // Builders for settings rows. `attr` names the data attribute the inputs carry; `overridden` marks rows set on a layer.
+  function settingControls(values, attr, overridden) {
+    const wrap = (key, label, control, unit) =>
+      `<label class="field"><em>${overridden && overridden.has(key) ? '<b class="ovr" title="Set on this layer">●</b> ' : ''}${label}</em>${control}${unit === undefined ? '' : `<span>${unit}</span>`}</label>`;
+    return {
+      colour: (key, label) => wrap(key, label, `<input type="color" ${attr}="${key}" value="${values[key]}">`, ''),
+      number: (key, label, min, max, unit, step) => wrap(key, label, `<input type="number" ${attr}="${key}" min="${min}" max="${max}" step="${step || 1}" value="${values[key]}">`, unit),
+      choice: (key, label, options) => wrap(key, label, `<select ${attr}="${key}">${options.map(([v, t]) => `<option value="${esc(v)}"${values[key] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`),
+    };
+  }
+  const wallSettingRows = c => c.colour('wallColor', 'Colour');
+  const dimSettingRows = c => c.choice('dimEnds', 'Line ends', Object.entries(DIM_ENDS)) + c.colour('dimColor', 'Line colour') +
+    c.choice('dimFont', 'Font', fontChoices()) + c.number('dimFontSize', 'Font size', 6, 40, 'px') + c.colour('dimFontColor', 'Font colour') +
+    c.number('dimDistance', 'Distance from wall', 20, 500, '%');
+  const objectSettingRows = c => c.choice('objFont', 'Font', fontChoices()) + c.number('objFontSize', 'Font size', 6, 40, 'px') +
+    c.colour('objFontColor', 'Font colour') + c.choice('objFillStyle', 'Fill style', Object.entries(FILLS)) + c.colour('objFillColor', 'Fill colour') +
+    c.number('objHatchSpacing', 'Hatch spacing', 3, 60, 'px') + c.number('objBorderSize', 'Border size', 0, 10, 'px', 0.5) + c.colour('objBorderColor', 'Border colour');
+
+  function layerPanelHtml(layer) {
+    const done = '<div class="row"><button data-act="closeLayerPanel" class="primary">Done</button></div>';
+    if (layer.kind === 'walls') {
+      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(doc.settings, 'data-set')) + done;
+    }
+    if (layer.kind === 'dimensions') {
+      return '<h3>Dimensions layer</h3><p>Holds all dimension lines.</p>' + dimSettingRows(settingControls(doc.settings, 'data-set')) + done;
+    }
+    const own = Object.keys(layer.settings).length;
+    return '<h3>Layer</h3>' +
+      `<label class="field">Name<input type="text" data-lname value="${esc(layer.name)}"></label>` +
+      '<h4>Object defaults on this layer</h4>' +
+      objectSettingRows(settingControls(Object.assign({}, doc.settings, layer.settings), 'data-lset', new Set(Object.keys(layer.settings)))) +
+      (own ? `<p>● ${own} setting${own > 1 ? 's' : ''} set on this layer; the rest follow the plan settings.</p>`
+        : '<p>This layer follows the plan settings. Change a value here to set it for this layer only.</p>') +
+      `<div class="row"><button data-act="clearLayerSettings" ${own ? '' : 'disabled'}>Use plan settings</button><button data-act="closeLayerPanel" class="primary">Done</button></div>`;
+  }
+
+  // The Layers list: topmost layer first, with visibility and freeze toggles per row.
+  function renderLayers() {
+    if (!layerById(activeLayer)) activeLayer = targetLayer().id;
+    const active = layerById(activeLayer), index = doc.layers.indexOf(active);
+    const canDelete = active.kind === 'objects' && doc.layers.filter(l => l.kind === 'objects').length > 1;
+    const button = (act, name, tip, disabled) => `<button data-lact="${act}" title="${tip}" aria-label="${tip}" ${disabled ? 'disabled' : ''}>${icon(name)}</button>`;
+    $('#layers').innerHTML = '<div class="layers-head"><h3>Layers</h3><div class="layer-tools">' +
+      button('add', 'plus', 'Add object layer') +
+      button('up', 'up', 'Move layer up (in front)', index === doc.layers.length - 1) +
+      button('down', 'down', 'Move layer down (behind)', index === 0) +
+      button('settings', 'cog', 'Layer settings') +
+      button('delete', 'remove', 'Delete layer (its objects move to another layer)', !canDelete) +
+      '</div></div><ul class="layer-list">' +
+      doc.layers.slice().reverse().map(l => {
+        const count = l.kind === 'objects' ? doc.objects.filter(o => o.layer === l.id).length : '';
+        return `<li data-layer="${esc(l.id)}" class="${l.id === activeLayer ? 'active' : ''}${l.visible ? '' : ' hidden-layer'}">` +
+          `<button data-lact="vis" class="${l.visible ? '' : 'off'}" title="${l.visible ? 'Hide layer' : 'Show layer'}">${icon(l.visible ? 'eye' : 'eyeOff')}</button>` +
+          `<button data-lact="freeze" class="${l.frozen ? 'on' : 'off'}" title="${l.frozen ? 'Unfreeze layer' : 'Freeze layer (cannot be selected or moved)'}">${icon(l.frozen ? 'lock' : 'lockOpen')}</button>` +
+          `<span class="lname">${esc(l.name)}</span><span class="lkind">${count}</span></li>`;
+      }).join('') + '</ul>';
+  }
+
+  $('#layers').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-lact]'), row = e.target.closest('li[data-layer]');
+    if (row) activeLayer = row.dataset.layer;
+    const layer = layerById(activeLayer);
+    if (!btn) {
+      if (layerPanel) layerPanel = activeLayer;
+      return renderAll();
+    }
+    const act = btn.dataset.lact, i = doc.layers.indexOf(layer);
+    if (act === 'vis') layer.visible = !layer.visible;
+    else if (act === 'freeze') layer.frozen = !layer.frozen;
+    else if (act === 'add') {
+      const n = doc.layers.filter(l => l.kind === 'objects').length + 1;
+      const added = { id: 'L' + doc.nextId++, kind: 'objects', name: 'Layer ' + n, visible: true, frozen: false, settings: {} };
+      doc.layers.splice(i + 1, 0, added);
+      activeLayer = added.id;
+    } else if (act === 'up' || act === 'down') {
+      const j = i + (act === 'up' ? 1 : -1);
+      if (j < 0 || j >= doc.layers.length) return;
+      doc.layers.splice(i, 1);
+      doc.layers.splice(j, 0, layer);
+    } else if (act === 'settings') {
+      layerPanel = layerPanel === activeLayer ? null : activeLayer;
+      showSettings = false;
+      sel = null;
+      if (tool !== 'select') { const keep = layerPanel; setTool('select'); layerPanel = keep; }
+      return renderAll();
+    } else if (act === 'delete') {
+      const others = doc.layers.filter(l => l.kind === 'objects' && l !== layer);
+      if (layer.kind !== 'objects' || !others.length) return;
+      // Objects are kept: they move to the nearest object layer below, or above if there is none.
+      const below = doc.layers.slice(0, i).reverse().find(l => l.kind === 'objects');
+      const home = below || others[0];
+      for (const o of doc.objects) if (o.layer === layer.id) o.layer = home.id;
+      doc.layers.splice(i, 1);
+      activeLayer = home.id;
+    }
+    commit();
+  });
+
   function renderPanel() {
     const obj = selectedObject();
     if (sel && !obj) sel = null;
-    if (sel || tool !== 'select') showSettings = false;
+    if (sel) {
+      // Nothing stays selected on a layer that has been hidden or frozen.
+      const layer = sel.kind === 'object' ? obj && objLayer(obj) : specialLayer(sel.kind === 'dim' ? 'dimensions' : 'walls');
+      if (layer && !usable(layer)) sel = null;
+    }
+    if (sel || tool !== 'select') { showSettings = false; layerPanel = null; }
+    if (layerPanel && !layerById(layerPanel)) layerPanel = null;
     let h;
-    if (showSettings) {
-      const st = doc.settings;
-      const row = (label, control, unit) => `<label class="field">${label}${control}${unit === undefined ? '' : `<span>${unit}</span>`}</label>`;
-      const colour = key => `<input type="color" data-set="${key}" value="${st[key]}">`;
-      const number = (key, min, max, step) => `<input type="number" data-set="${key}" min="${min}" max="${max}" step="${step || 1}" value="${st[key]}">`;
-      const choice = (key, options) => `<select data-set="${key}">${options.map(([v, t]) => `<option value="${v}"${st[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
-      h = '<h3>Plan settings</h3><h4>Walls</h4>' + row('Colour', colour('wallColor'), '') +
-        '<h4>Dimensions</h4>' +
-        row('Line ends', choice('dimEnds', Object.entries(DIM_ENDS))) +
-        row('Line colour', colour('dimColor'), '') +
-        row('Font', choice('dimFont', fontChoices())) +
-        row('Font size', number('dimFontSize', 6, 40), 'px') +
-        row('Font colour', colour('dimFontColor'), '') +
-        row('Distance from wall', number('dimDistance', 20, 500), '%') +
-        '<h4>Objects</h4>' +
-        row('Font', choice('objFont', fontChoices())) +
-        row('Font size', number('objFontSize', 6, 40), 'px') +
-        row('Font colour', colour('objFontColor'), '') +
-        row('Fill style', choice('objFillStyle', Object.entries(FILLS))) +
-        row('Fill colour', colour('objFillColor'), '') +
-        row('Hatch spacing', number('objHatchSpacing', 3, 60), 'px') +
-        row('Border size', number('objBorderSize', 0, 10, 0.5), 'px') +
-        row('Border colour', colour('objBorderColor'), '') +
+    if (layerPanel) {
+      h = layerPanelHtml(layerById(layerPanel));
+    } else if (showSettings) {
+      const st = doc.settings, c = settingControls(st, 'data-set');
+      h = '<h3>Plan settings</h3><h4>Walls</h4>' + wallSettingRows(c) +
+        '<h4>Dimensions</h4>' + dimSettingRows(c) +
+        '<h4>Objects</h4>' + objectSettingRows(c) +
+        '<p>Object settings can also be set per layer (select a layer, then the cog).</p>' +
         '<h4>Google Fonts</h4>' +
         '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
         (st.googleFonts.length ? '<ul class="hidden-dims">' + st.googleFonts.map(n =>
@@ -827,9 +994,10 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
-        `<label class="field">Fill style<select data-ofill="fillStyle"><option value="">Default (${FILLS[doc.settings.objFillStyle]})</option>${Object.entries(FILLS).map(([v, t]) => `<option value="${v}"${obj.fillStyle === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` +
-        `<label class="field">Fill colour<input type="color" data-ofill="fillColor" value="${obj.fillColor || doc.settings.objFillColor}"><span></span></label>` +
-        (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill from Settings.</p>') +
+        `<label class="field">Layer<select data-olayer>${doc.layers.slice().reverse().filter(l => l.kind === 'objects').map(l => `<option value="${esc(l.id)}"${l.id === obj.layer ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` +
+        `<label class="field">Fill style<select data-ofill="fillStyle"><option value="">Default (${FILLS[objSettings(obj).objFillStyle]})</option>${Object.entries(FILLS).map(([v, t]) => `<option value="${v}"${obj.fillStyle === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` +
+        `<label class="field">Fill colour<input type="color" data-ofill="fillColor" value="${obj.fillColor || objSettings(obj).objFillColor}"><span></span></label>` +
+        (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill of its layer.</p>') +
         `<label class="note">Description<textarea data-desc rows="4" placeholder="Notes about this object; not shown on the plan">${esc(obj.description || '')}</textarea></label>` +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
@@ -872,6 +1040,11 @@
     panel.innerHTML = h;
   }
 
+  function applyLayerSetting(input) {
+    const layer = layerById(layerPanel), key = input.dataset.lset;
+    const value = input.type === 'number' ? Number(input.value) : input.value;
+    layer.settings[key] = cleanSettings(Object.assign({}, doc.settings, { [key]: value }))[key];
+  }
   function applySetting(input) {
     const key = input.dataset.set;
     const value = input.type === 'number' ? Number(input.value) : input.value;
@@ -884,6 +1057,7 @@
   }
   panel.addEventListener('input', e => {
     if (e.target.dataset.ofill && sel && sel.kind === 'object') { applyObjectFill(e.target); return render(); }
+    if (e.target.dataset.lset && layerPanel) { applyLayerSetting(e.target); return render(); }
     if (!e.target.dataset.set) return;
     applySetting(e.target);
     render();
@@ -894,6 +1068,19 @@
   panel.addEventListener('change', e => {
     if (e.target.dataset.ofill && sel && sel.kind === 'object') {
       applyObjectFill(e.target);
+      return commit();
+    }
+    if (e.target.dataset.lset && layerPanel) {
+      applyLayerSetting(e.target);
+      return commit();
+    }
+    if ('lname' in e.target.dataset && layerPanel) {
+      const layer = layerById(layerPanel);
+      layer.name = e.target.value.trim() || layer.name;
+      return commit();
+    }
+    if ('olayer' in e.target.dataset && sel && sel.kind === 'object') {
+      selectedObject().layer = e.target.value;
       return commit();
     }
     if (sel && sel.kind === 'object' && ['name', 'rot', 'desc'].some(k => k in e.target.dataset)) {
@@ -968,6 +1155,8 @@
     if (act === 'rotateRight') obj.rot = normAngle(obj.rot + 90);
     if (act === 'resetSettings') doc.settings = defaultSettings();
     if (act === 'closeSettings') showSettings = false;
+    if (act === 'closeLayerPanel') layerPanel = null;
+    if (act === 'clearLayerSettings') layerById(layerPanel).settings = {};
     if (act === 'clearReal') delete doc.realDimensions[sel.key];
     if (act === 'showDim') {
       setHidden([e.target.closest('[data-dim]').dataset.dim], false);
@@ -1016,8 +1205,9 @@
 
   function renderAll() {
     loadGoogleFonts();
+    renderLayers();
+    renderPanel();   // may drop a selection that is no longer allowed, so it runs before drawing
     render();
-    renderPanel();
     syncUnits();
     $('#btnUndo').disabled = hIndex <= 0;
     $('#btnRedo').disabled = hIndex >= history.length - 1;
@@ -1068,6 +1258,8 @@
       svg.classList.add('panning');
       return;
     }
+    const toolLayer = tool === 'object' ? targetLayer() : tool !== 'select' ? specialLayer('walls') : null;
+    if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
       const a = snapPoint(w, e);
       drag = { kind: 'newwall', a, b: a };
@@ -1087,7 +1279,7 @@
       return;
     }
 
-    // Select tool: handles, openings, dimensions, wall lines, wall rectangles, then empty space.
+    // Select tool: handles of the current selection first, then whatever is on top.
     if (sel && sel.kind === 'wall') {
       const rect = selectedObject();
       const hp = rect && handlePoints(rect).find(h => Math.abs(h.p[0] - p.x) <= 6 && Math.abs(h.p[1] - p.y) <= 6);
@@ -1104,33 +1296,41 @@
         return;
       }
     }
-    const o = hitOpening(w);
-    if (o) {
-      sel = { kind: 'opening', id: o.id };
-      drag = { kind: 'moveopening', o };
-      return renderAll();
-    }
-    const dim = hitDim(p);
-    if (dim) {
-      sel = { kind: 'dim', key: dim.key };
-      return renderAll();
-    }
-    const thing = hitObject(w);
-    if (thing) {
-      sel = { kind: 'object', id: thing.id };
-      drag = { kind: 'moveobject', o: thing, w0: w, orig: { x: thing.x, y: thing.y } };
-      return renderAll();
-    }
-    const edge = hitEdge(p);
-    if (edge) {
-      sel = { kind: 'edge', key: edge.key };
-      drag = { kind: 'pending', p, w0: w, rect: hitRect(w, 5) };
-      return renderAll();
-    }
-    const rect = hitRect(w);
-    if (rect) {
-      startMoveWall(rect, w);
-      return renderAll();
+    // The topmost layer under the pointer wins; hidden and frozen layers are passed through.
+    for (const layer of doc.layers.slice().reverse()) {
+      if (!usable(layer)) continue;
+      if (layer.kind === 'objects') {
+        const thing = hitObject(w, layer.id);
+        if (thing) {
+          sel = { kind: 'object', id: thing.id };
+          drag = { kind: 'moveobject', o: thing, w0: w, orig: { x: thing.x, y: thing.y } };
+          return renderAll();
+        }
+      } else if (layer.kind === 'dimensions') {
+        const dim = hitDim(p);
+        if (dim) {
+          sel = { kind: 'dim', key: dim.key };
+          return renderAll();
+        }
+      } else {
+        const o = hitOpening(w);
+        if (o) {
+          sel = { kind: 'opening', id: o.id };
+          drag = { kind: 'moveopening', o };
+          return renderAll();
+        }
+        const edge = hitEdge(p);
+        if (edge) {
+          sel = { kind: 'edge', key: edge.key };
+          drag = { kind: 'pending', p, w0: w, rect: hitRect(w, 5) };
+          return renderAll();
+        }
+        const rect = hitRect(w);
+        if (rect) {
+          startMoveWall(rect, w);
+          return renderAll();
+        }
+      }
     }
     sel = null;
     drag = { kind: 'pan', p, ox: view.ox, oy: view.oy };
@@ -1215,7 +1415,7 @@
     if (d.kind === 'newobject') {
       let r = dragRect(d);
       if (!r.w || !r.h) r = { x: d.a.x - 500, y: d.a.y - 300, w: 1000, h: 600 };   // plain click: standard size
-      const o = { id: doc.nextId++, name: '', description: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0 };
+      const o = { id: doc.nextId++, name: '', description: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, layer: targetLayer().id };
       doc.objects.push(o);
       setTool('select');
       sel = { kind: 'object', id: o.id };
@@ -1279,6 +1479,7 @@
   $('#btnSettings').onclick = () => {
     const open = !showSettings;
     sel = null;
+    layerPanel = null;
     if (tool !== 'select') setTool('select');
     showSettings = open;
     renderAll();
