@@ -101,7 +101,14 @@
       border-left: 1px solid var(--border);
     }
     #panel { flex: 1; min-height: 0; padding: 12px; overflow-y: auto; }
-    #layers { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+    #layers, #levels { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+    #levels button { display: flex; padding: 2px; border-color: transparent; background: none; }
+    #levels button:hover:not(:disabled) { background: var(--hover); }
+    #levels button.off { color: var(--off); }
+    #levels button.on { color: var(--accent); }
+    #levels svg { display: block; pointer-events: none; }
+    #levels .layer-list { max-height: 18vh; }
+    #levels input.lvname { flex: 1; min-width: 0; margin-left: 4px; padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
     .layers-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .layers-head h3 { margin: 0; font-size: 13px; }
     .layer-tools { display: flex; gap: 2px; }
@@ -265,6 +272,7 @@
 
   <aside id="side">
     <div id="panel"></div>
+    <div id="levels"></div>
     <div id="layers"></div>
     <div id="calc" hidden>
       <input id="calcInput" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Calculator" aria-label="Calculator expression">

@@ -34,7 +34,9 @@ An internet connection is needed only for Google Fonts, if you add any.
 - Titles are free text that can sit on any layer.
 - Comment notes are sticky-note shapes with wrapped text and a colour.
 
-**Layers**
+**Levels and layers**
+- A plan can have several levels (floors). Each has a name and its own walls, dimensions, objects and layers; colours and other settings are shared.
+- While editing one level, any other can be hidden, shown on top of each other, or shown as a half-transparent ghost for alignment.
 - Fixed Walls and Dimensions layers, plus any number of object layers.
 - A layer can be hidden, or frozen (selectable but read-only). Layer order is the drawing order.
 - Object and title defaults can be set for the whole plan or per layer.
@@ -75,7 +77,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 
 ## Plan files
 
-Each plan is one `.json` file in the chosen folder and is saved automatically after every change. All lengths are stored in millimetres whatever unit is displayed. The file also records the app name, version and repository it was written by.
+Each plan is one `.json` file in the chosen folder, holding all its levels, and is saved automatically after every change. All lengths are stored in millimetres whatever unit is displayed. The file also records the app name, version and repository it was written by.
 
 ## Limitations
 

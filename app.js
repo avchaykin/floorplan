@@ -254,6 +254,7 @@
     down: 'M11,4H13V16L18.5,10.5L19.92,11.92L12,19.84L4.08,11.92L5.5,10.5L11,16V4Z',
     plus: 'M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z',
     remove: 'M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z',
+    ghost: 'M18 10V8H20V10H18M18 12V10H16V12H18M18 8V6H16V8H18M16 2.84V4H18C17.37 3.54 16.71 3.15 16 2.84M18 4V6H20C19.42 5.25 18.75 4.58 18 4M20 6V8H21.16C20.85 7.29 20.46 6.63 20 6M22 12C22 11.32 21.93 10.65 21.8 10H20V12H22M16 6V4H14V6H16M16 16H18V14H16V16M18 18H20L20 18V16H18V18M16 20H18L18 20V18H16V20M14 21.8C14.7 21.66 15.36 21.44 16 21.16V20H14V21.8M18 14H20V12H18V14M16 8H14V10H16V8M20 16H21.16C21.44 15.36 21.66 14.7 21.8 14H20V16M16 12H14V14H16V12M12 18V16H14V14H12V12H14V10H12V8H14V6H12V4H14V2.2C13.35 2.07 12.69 2 12 2C6.5 2 2 6.5 2 12S6.5 22 12 22V20H14V18H12M14 18H16V16H14V18Z',
     cog: 'M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z',
   };
   const icon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`;
@@ -384,16 +385,34 @@
 
   // ---------- Document ----------
 
+  // Everything that belongs to one level (floor). The level being edited keeps these at the top of `doc`;
+  // the other levels carry theirs in `level.data`.
+  const LEVEL_KEYS = ['walls', 'openings', 'objects', 'marks', 'titles', 'compasses', 'rulers', 'comments', 'hiddenDimensions', 'realDimensions', 'descriptions', 'layers'];
+  const LEVEL_SHOW = ['off', 'on', 'ghost'];   // how a level appears while another one is being edited
+  function emptyContent() {
+    return { walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], comments: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, layers: defaultLayers() };
+  }
+  const contentOf = holder => Object.fromEntries(LEVEL_KEYS.map(k => [k, holder[k]]));
+  const hasContent = c => ['walls', 'openings', 'objects', 'marks', 'titles', 'compasses', 'rulers', 'comments'].some(k => c[k].length);
+
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], comments: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
+    return Object.assign({ format: 'floorplan', version: 1, units: 'mm', nextId: 1, settings: defaultSettings(), level: 'lv1', levels: [{ id: 'lv1', name: 'Level 1', show: 'off', data: null }] }, emptyContent());
   }
 
-  function normalizeDoc(d) {
-    if (!d || d.format !== 'floorplan' || !Array.isArray(d.walls)) throw new Error('not a floorplan file');
-    const out = newDoc();
-    if (UNITS[d.units]) out.units = d.units;
-    out.settings = cleanSettings(d.settings);
-    out.walls = d.walls.filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0);
+  // The plan as it is written to disk: every level holds its own content, none is special.
+  function packDoc() {
+    const { format, version, units, nextId, settings, level, levels } = doc;
+    return {
+      format, version, app: APP, units, nextId, settings, level,
+      levels: levels.map(l => Object.assign({ id: l.id, name: l.name, show: l.show }, l.id === level ? contentOf(doc) : l.data)),
+    };
+  }
+
+  // Cleans the content of one level. Returns it with the highest id found in it.
+  function normalizeContent(d, settings) {
+    const out = emptyContent();
+    out.settings = settings;   // only for reference while cleaning; removed again below
+    out.walls = (d.walls || []).filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0);
     out.openings = (d.openings || []).filter(o => OPENING_TOOLS.includes(o.type) && Number.isFinite(o.x) && Number.isFinite(o.y));
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
     // Notes on dimensions and wall lines, which have no record of their own: keyed "dim|<key>" or "edge|<key>".
@@ -455,7 +474,32 @@
     });
     const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses, out.rulers, out.comments).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
-    out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
+    delete out.settings;
+    return { content: out, top: Math.max(0, ...ids) };
+  }
+
+  function normalizeDoc(d) {
+    if (!d || d.format !== 'floorplan' || (!Array.isArray(d.walls) && !Array.isArray(d.levels))) throw new Error('not a floorplan file');
+    const out = newDoc();
+    if (UNITS[d.units]) out.units = d.units;
+    out.settings = cleanSettings(d.settings);
+    // Plans from before levels existed are one level.
+    const raw = Array.isArray(d.levels) && d.levels.length ? d.levels.filter(l => l && typeof l === 'object') : [Object.assign({}, d, { id: 'lv1', name: 'Level 1' })];
+    let top = 0;
+    out.levels = [];
+    for (const src of raw) {
+      let id = typeof src.id === 'string' && src.id ? src.id : 'lv' + (out.levels.length + 1);
+      while (out.levels.some(l => l.id === id)) id += '_';
+      const cleaned = normalizeContent(src, out.settings);
+      top = Math.max(top, cleaned.top, +id.replace(/^lv/, '') || 0);
+      out.levels.push({ id, name: typeof src.name === 'string' && src.name.trim() ? src.name.trim() : 'Level ' + (out.levels.length + 1), show: LEVEL_SHOW.includes(src.show) ? src.show : 'off', data: cleaned.content });
+    }
+    if (!out.levels.length) return newDoc();
+    const active = out.levels.find(l => l.id === d.level) || out.levels[0];
+    Object.assign(out, active.data);
+    active.data = null;
+    out.level = active.id;
+    out.nextId = Math.max(d.nextId || 1, 1, top + 1);
     return out;
   }
 
@@ -524,7 +568,7 @@
     const a = layerById(activeLayer);
     return a && a.kind === 'objects' ? a : doc.layers.slice().reverse().find(l => l.kind === 'objects');
   }
-  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length && !doc.titles.length && !doc.compasses.length && !doc.rulers.length && !doc.comments.length;
+  const isEmpty = () => !hasContent(doc) && !doc.levels.some(l => l.data && hasContent(l.data));
 
   function resetHistory() {
     history = [JSON.stringify(doc)];
@@ -549,9 +593,43 @@
     hIndex += d;
     doc = JSON.parse(history[hIndex]);
     sel = null;
+    layerPanel = activeLayer = vertexSel = null;
     rebuild();
     scheduleSave();
     renderAll();
+  }
+
+  // Makes another level the one being edited: the current content is parked in its level, the other's is brought up.
+  function switchLevel(id) {
+    const cur = doc.levels.find(l => l.id === doc.level), next = doc.levels.find(l => l.id === id);
+    if (!next || next === cur) return;
+    cur.data = contentOf(doc);
+    Object.assign(doc, next.data);
+    next.data = null;
+    doc.level = id;
+    sel = null;
+    layerPanel = activeLayer = vertexSel = null;
+  }
+
+  // Drawing of a level that is not being edited, made by briefly putting its content in place of the current one.
+  const parkedWalls = new WeakMap();   // wall outlines per parked level, rebuilt only when its content object changes
+  function parkedLevelSvg(level) {
+    const keep = contentOf(doc), keepWalls = walls, keepSel = sel;
+    if (!parkedWalls.has(level.data)) parkedWalls.set(level.data, Geo.buildWalls(level.data.walls));
+    Object.assign(doc, level.data);
+    walls = parkedWalls.get(level.data);
+    sel = null;
+    try { return layersSvg(); } finally { Object.assign(doc, keep); walls = keepWalls; sel = keepSel; }
+  }
+
+  // The whole picture: other levels that are switched on (solid or as a ghost) underneath, the edited level on top.
+  function planSvg() {
+    let g = '';
+    for (const level of doc.levels) {
+      if (level.id === doc.level || level.show === 'off' || !level.data) continue;
+      g += `<g opacity="${level.show === 'ghost' ? 0.3 : 1}">${parkedLevelSvg(level)}</g>`;
+    }
+    return g + layersSvg();
   }
 
   function setDoc(d) {
@@ -1353,7 +1431,7 @@
     const box = svg.getBoundingClientRect();
     const h = [gridSvg(box.width, box.height)];
 
-    h.push(layersSvg());
+    h.push(planSvg());
 
     if (sel && sel.kind === 'edge') {
       const seg = walls.segments.find(s => s.key === sel.key);
@@ -1484,6 +1562,62 @@
       `<label class="field">Name<input type="text" data-lname value="${esc(layer.name)}"></label>` +
       '<h4>Object defaults on this layer</h4>' + objectSettingRows(lc) + titles + tail;
   }
+
+  // The Levels list, top floor first. The edited level is highlighted and can be renamed in place;
+  // the others have a button cycling hidden / shown / ghost.
+  function renderLevels() {
+    const index = doc.levels.findIndex(l => l.id === doc.level);
+    const button = (act, name, tip, disabled) => `<button data-vact="${act}" title="${tip}" aria-label="${tip}" ${disabled ? 'disabled' : ''}>${icon(name)}</button>`;
+    const showIcon = { off: 'eyeOff', on: 'eye', ghost: 'ghost' }, showTip = { off: 'Hidden — click to show', on: 'Shown — click to show as a ghost', ghost: 'Ghost — click to hide' };
+    $('#levels').innerHTML = '<div class="layers-head"><h3>Levels</h3><div class="layer-tools">' +
+      button('add', 'plus', 'Add a level above this one') +
+      button('up', 'up', 'Move level up', index === doc.levels.length - 1) +
+      button('down', 'down', 'Move level down', index === 0) +
+      button('delete', 'remove', 'Delete this level and everything on it', doc.levels.length < 2) +
+      '</div></div><ul class="layer-list">' +
+      doc.levels.slice().reverse().map(l => {
+        const current = l.id === doc.level;
+        return `<li data-level="${esc(l.id)}" class="${current ? 'active' : ''}">` +
+          (current ? `<button disabled title="The level being edited">${icon('eye')}</button><input class="lvname" data-lvname value="${esc(l.name)}" title="Level name">`
+            : `<button data-vact="show" class="${l.show === 'off' ? 'off' : l.show === 'ghost' ? 'on' : ''}" title="${showTip[l.show]}">${icon(showIcon[l.show])}</button><span class="lname">${esc(l.name)}</span>`) +
+          '</li>';
+      }).join('') + '</ul>';
+  }
+
+  $('#levels').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-vact]'), row = e.target.closest('li[data-level]');
+    const i = doc.levels.findIndex(l => l.id === doc.level);
+    if (btn && btn.dataset.vact === 'show') {
+      const level = doc.levels.find(l => l.id === row.dataset.level);
+      level.show = LEVEL_SHOW[(LEVEL_SHOW.indexOf(level.show) + 1) % LEVEL_SHOW.length];
+    } else if (btn && btn.dataset.vact === 'add') {
+      // The new level starts with the same layers (empty), and the one below is left visible as a ghost to trace over.
+      const below = doc.levels[i], id = 'lv' + doc.nextId++;
+      const layers = JSON.parse(JSON.stringify(doc.layers));
+      doc.levels.splice(i + 1, 0, { id, name: 'Level ' + (doc.levels.length + 1), show: 'off', data: Object.assign(emptyContent(), { layers }) });
+      below.show = 'ghost';
+      switchLevel(id);
+    } else if (btn && (btn.dataset.vact === 'up' || btn.dataset.vact === 'down')) {
+      const j = i + (btn.dataset.vact === 'up' ? 1 : -1);
+      if (j < 0 || j >= doc.levels.length) return;
+      doc.levels.splice(j, 0, doc.levels.splice(i, 1)[0]);
+    } else if (btn && btn.dataset.vact === 'delete') {
+      if (doc.levels.length < 2) return;
+      const gone = doc.levels[i];
+      switchLevel(doc.levels[i ? i - 1 : 1].id);
+      doc.levels = doc.levels.filter(l => l !== gone);
+      toast(`“${gone.name}” deleted. Undo brings it back.`);
+    } else if (row && row.dataset.level !== doc.level && !e.target.closest('input')) {
+      switchLevel(row.dataset.level);
+    } else return;
+    commit();
+  });
+  $('#levels').addEventListener('change', e => {
+    if (!('lvname' in e.target.dataset)) return;
+    const level = doc.levels.find(l => l.id === doc.level);
+    level.name = e.target.value.trim() || level.name;
+    commit();
+  });
 
   // The Layers list: topmost layer first, with visibility and freeze toggles per row.
   function renderLayers() {
@@ -2014,6 +2148,7 @@
 
   function renderAll(keepPanel) {
     loadGoogleFonts();
+    renderLevels();
     renderLayers();
     if (!keepPanel) renderPanel();   // may drop a selection that is no longer allowed, so it runs before drawing
     render();
@@ -2580,7 +2715,7 @@
   function scheduleSave() {
     dirty = true;
     if (!dir || !fileName) {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(doc));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(packDoc()));
       setStatus('Not saved to disk — open a folder', 'warn');
       return;
     }
@@ -2593,8 +2728,7 @@
     clearTimeout(saveTimer);
     if (!dir || !fileName || !dirty) return saveChain;
     dirty = false;
-    const { format, version, ...rest } = doc;
-    const name = fileName, text = JSON.stringify({ format, version, app: APP, ...rest }, null, 2) + '\n', folder = dir;
+    const name = fileName, text = JSON.stringify(packDoc(), null, 2) + '\n', folder = dir;
     saveChain = saveChain.then(async () => {
       const fh = await folder.getFileHandle(name, { create: true });
       const out = await fh.createWritable();
@@ -2808,7 +2942,7 @@
     if (lightColours) setPalette(PALETTES.light.canvas, 'light');
     const paper = PAPER;
     let body;
-    try { body = layersSvg(); } finally { sel = keep; setPalette(keepPal, keepMode); }
+    try { body = planSvg(); } finally { sel = keep; setPalette(keepPal, keepMode); }
     // Measure the drawing in a hidden SVG so labels and dimension lines are included in the frame.
     const probe = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     probe.setAttribute('style', 'position:absolute;left:-99999px;top:0;width:10px;height:10px;overflow:hidden');
