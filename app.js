@@ -258,6 +258,9 @@
   };
   const icon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`;
 
+  // Per-object dimensions: its own side length, the gap to whatever is nearest, the gap to the nearest parallel side.
+  const MEASURE_TYPES = ['size', 'near', 'parallel'];
+
   // Object settings a layer may override; everything else is plan-wide.
   const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
 
@@ -405,6 +408,15 @@
       if (pairSet(toPair(src.fillColor))) o.fillColor = toPair(src.fillColor);
       if (src.hideName === true) o.hideName = true;
       if (src.hideSize === true) o.hideSize = true;
+      // Optional dimensions per side, e.g. { size: 'lt', near: 'r' }; letters are l, r, t, b.
+      if (src.measure && typeof src.measure === 'object') {
+        const m = {};
+        for (const type of MEASURE_TYPES) {
+          const sides = Array.from(new Set(String(src.measure[type] || '').split(''))).filter(c => 'lrtb'.includes(c)).join('');
+          if (sides) m[type] = sides;
+        }
+        if (Object.keys(m).length) o.measure = m;
+      }
       return o;
     });
     out.layers = cleanLayers(d.layers, out.settings);
@@ -1033,6 +1045,97 @@
       `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="${PAPER}" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
   }
 
+  // ---------- Object dimensions ----------
+  // Sides are the object's own (left, right, top, bottom before rotation) and turn with it.
+
+  // side: [start x, start y, end x, end y] in half-sizes, then the outward normal
+  const OBJ_SIDES = { l: [-1, -1, -1, 1, -1, 0], r: [1, -1, 1, 1, 1, 0], t: [-1, -1, 1, -1, 0, -1], b: [-1, 1, 1, 1, 0, 1] };
+
+  function objectSide(o, key) {
+    const [ax, ay, bx, by, nx, ny] = OBJ_SIDES[key], hw = o.w / 2, hh = o.h / 2;
+    const a = objToWorld(o, ax * hw, ay * hh), b = objToWorld(o, bx * hw, by * hh);
+    const rad = o.rot * Math.PI / 180, c = Math.cos(rad), sn = Math.sin(rad), len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    return { a, b, len, n: [nx * c - ny * sn, nx * sn + ny * c], dir: [(b[0] - a[0]) / len, (b[1] - a[1]) / len] };
+  }
+
+  // Wall outlines and the edges of every other visible object, as world segments.
+  function obstacleSegments(self) {
+    const segs = [];
+    if (specialLayer('walls').visible) for (const sg of walls.segments) segs.push([[sg.x1, sg.y1], [sg.x2, sg.y2]]);
+    for (const o of doc.objects) {
+      if (o === self || !objLayer(o).visible) continue;
+      const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => objToWorld(o, x * o.w / 2, y * o.h / 2));
+      for (let i = 0; i < 4; i++) segs.push([c[i], c[(i + 1) % 4]]);
+    }
+    return segs;
+  }
+
+  // Straight out from the middle of the side: the first thing hit, whatever its angle.
+  function nearestFromSide(side, segs) {
+    const o = [(side.a[0] + side.b[0]) / 2, (side.a[1] + side.b[1]) / 2], d = side.n;
+    let best = Infinity;
+    for (const [p, q] of segs) {
+      const ex = q[0] - p[0], ey = q[1] - p[1], den = d[0] * ey - d[1] * ex;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = ((p[0] - o[0]) * ey - (p[1] - o[1]) * ex) / den, u = ((p[0] - o[0]) * d[1] - (p[1] - o[1]) * d[0]) / den;
+      if (t > 0.5 && u >= 0 && u <= 1 && t < best) best = t;
+    }
+    return best < Infinity ? { from: o, to: [o[0] + d[0] * best, o[1] + d[1] * best], dist: best } : null;
+  }
+
+  // The closest wall or object edge that runs parallel to the side and faces some part of it.
+  function nearestParallelSide(side, segs) {
+    let best = null;
+    for (const [p, q] of segs) {
+      const ex = q[0] - p[0], ey = q[1] - p[1], el = Math.hypot(ex, ey);
+      if (!el || Math.abs(side.dir[0] * ey - side.dir[1] * ex) / el > 0.01) continue;
+      const dist = (p[0] - side.a[0]) * side.n[0] + (p[1] - side.a[1]) * side.n[1];
+      if (dist < 0.5) continue;
+      const along = pt => (pt[0] - side.a[0]) * side.dir[0] + (pt[1] - side.a[1]) * side.dir[1];
+      const lo = Math.max(Math.min(along(p), along(q)), 0), hi = Math.min(Math.max(along(p), along(q)), side.len);
+      if (hi - lo < 0.5 || (best && dist >= best.dist)) continue;
+      const mid = (lo + hi) / 2, from = [side.a[0] + side.dir[0] * mid, side.a[1] + side.dir[1] * mid];
+      best = { from, to: [from[0] + side.n[0] * dist, from[1] + side.n[1] * dist], dist };
+    }
+    return best;
+  }
+
+  // A dimension between two world points at any angle. With an offset it is drawn beside them
+  // (shifted along n, with extension lines); without, straight between them.
+  function freeDimSvg(aw, bw, n, off, text) {
+    const st = planStyle(), a0 = S(aw[0], aw[1]), b0 = S(bw[0], bw[1]);
+    if (Math.hypot(b0[0] - a0[0], b0[1] - a0[1]) < 10) return '';
+    const a = [a0[0] + n[0] * off, a0[1] + n[1] * off], b = [b0[0] + n[0] * off, b0[1] + n[1] * off];
+    let g = '';
+    if (off) for (const p of [a0, b0]) g += line([p[0] + n[0] * 3, p[1] + n[1] * 3], [p[0] + n[0] * (off + 4), p[1] + n[1] * (off + 4)], `stroke="${st.dimColor}" stroke-width="0.8"`);
+    let angle = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+    if (angle >= 90) angle -= 180; else if (angle < -90) angle += 180;   // keep the text upright
+    const tx = (a[0] + b[0]) / 2 + n[0] * st.dimFontSize * 0.82, ty = (a[1] + b[1]) / 2 + n[1] * st.dimFontSize * 0.82;
+    return g + line(a, b, `stroke="${st.dimColor}" stroke-width="1"`) + dimEndSvg(a, b, st.dimColor) + dimEndSvg(b, a, st.dimColor) +
+      `<text x="${f(tx)}" y="${f(ty)}" transform="rotate(${f(angle)} ${f(tx)} ${f(ty)})" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${st.dimFontColor}" stroke="${PAPER}" stroke-width="3" paint-order="stroke">${text}</text>`;
+  }
+
+  function objectMeasuresSvg(o) {
+    const m = o.measure;
+    if (!m) return '';
+    let g = '', segs = null;
+    for (const key of 'lrtb') {
+      const wants = type => (m[type] || '').includes(key);
+      if (!wants('size') && !wants('near') && !wants('parallel')) continue;
+      const side = objectSide(o, key);
+      if (wants('size')) g += freeDimSvg(side.a, side.b, side.n, dimOffset(), fmt(side.len));
+      if (!wants('near') && !wants('parallel')) continue;
+      segs = segs || obstacleSegments(o);
+      const near = wants('near') && nearestFromSide(side, segs), par = wants('parallel') && nearestParallelSide(side, segs);
+      // Gaps are labelled on the side of the line that the object's edge runs towards.
+      if (near) g += freeDimSvg(near.from, near.to, side.dir, 0, fmt(near.dist));
+      if (par && !(near && Math.abs(near.dist - par.dist) < 0.5 && Math.hypot(near.from[0] - par.from[0], near.from[1] - par.from[1]) < 0.5)) {
+        g += freeDimSvg(par.from, par.to, [-side.dir[0], -side.dir[1]], 0, fmt(par.dist));
+      }
+    }
+    return g;
+  }
+
   // Everything that belongs to the plan itself (no grid, handles or previews); also what gets exported.
   function layersSvg() {
     const h = [];
@@ -1047,6 +1150,7 @@
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
+        for (const o of doc.objects) if (o.measure && objLayer(o).visible) h.push(objectMeasuresSvg(o));
         for (const c of doc.compasses) h.push(compassSvg(c, !!sel && sel.kind === 'compass' && sel.id === c.id));
         for (const m of doc.marks) h.push(markSvg(m, !!sel && sel.kind === 'mark' && sel.id === m.id));
       } else {
@@ -1243,6 +1347,7 @@
   // Selector that finds the same control again after the panel has been rebuilt.
   function controlKey(el) {
     const side = el.dataset.side ? `[data-side="${el.dataset.side}"]` : '';
+    if (el.dataset.measure) return `[data-measure="${el.dataset.measure}"][data-mside="${el.dataset.mside}"]`;
     for (const k of ['k', 'set', 'lset', 'ofill', 'oflag', 'tcol']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
     for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer']) if (k in el.dataset) return `[data-${k}]`;
     return null;
@@ -1336,6 +1441,12 @@
         (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill of its layer.</p>') +
         `<label class="check"><input type="checkbox" data-oflag="hideName"${obj.hideName ? ' checked' : ''}> Hide name on plan</label>` +
         `<label class="check"><input type="checkbox" data-oflag="hideSize"${obj.hideSize ? ' checked' : ''}> Hide dimensions on plan</label>` +
+        '<h4>Dimensions on plan</h4><table class="measure"><tr><th></th><th>L</th><th>R</th><th>T</th><th>B</th></tr>' +
+        [['size', 'Side length', 'Length of this side, drawn outside the object'],
+          ['near', 'To nearest', 'Gap from the middle of this side to the nearest wall or object'],
+          ['parallel', 'To parallel side', 'Gap from this side to the nearest wall or object side that runs parallel to it']].map(([type, label, tip]) =>
+          `<tr title="${tip}"><td>${label}</td>${'lrtb'.split('').map(k => `<td><input type="checkbox" data-measure="${type}" data-mside="${k}"${((obj.measure || {})[type] || '').includes(k) ? ' checked' : ''}></td>`).join('')}</tr>`).join('') +
+        '</table><p>L, R, T, B are the object’s own sides and turn with it. These lines are drawn with the Dimensions layer.</p>' +
         descriptionField() +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
@@ -1429,6 +1540,13 @@
     if ('lname' in ds && layerPanel) {
       const layer = layerById(layerPanel), name = el.value.trim();
       if (name) layer.name = name;
+      return 'doc';
+    }
+    if (ds.measure && object) {
+      const m = object.measure || {}, sides = new Set((m[ds.measure] || '').split(''));
+      if (el.checked) sides.add(ds.mside); else sides.delete(ds.mside);
+      if (sides.size) m[ds.measure] = 'lrtb'.split('').filter(k => sides.has(k)).join(''); else delete m[ds.measure];
+      if (Object.keys(m).length) object.measure = m; else delete object.measure;
       return 'doc';
     }
     if (ds.oflag && object) {
