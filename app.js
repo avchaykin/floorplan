@@ -410,14 +410,13 @@
     const stroke = selected || preview ? ACCENT : INK;
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
       `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="#fff" fill-opacity=".85" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
-    // Name and size, as many lines as fit; kept upright when the object is turned over.
+    // Name and size, as many lines as fit; the text always turns with the object.
     const size = st.objFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
     const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * 0.6 + 6);
     const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
-    const flip = o.rot > 90 && o.rot <= 270 ? ' transform="rotate(180)"' : '';
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${FONTS[st.objFont][1]};font-size:${size}px" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${flip}>${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${FONTS[st.objFont][1]};font-size:${size}px" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}">${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected) {
