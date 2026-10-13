@@ -404,7 +404,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings(), layers: defaultLayers() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
   }
 
   function normalizeDoc(d) {
@@ -415,6 +415,8 @@
     out.walls = d.walls.filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0);
     out.openings = (d.openings || []).filter(o => OPENING_TOOLS.includes(o.type) && Number.isFinite(o.x) && Number.isFinite(o.y));
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
+    // Notes on dimensions and wall lines, which have no record of their own: keyed "dim|<key>" or "edge|<key>".
+    for (const [k, v] of Object.entries(d.descriptions || {})) if (typeof v === 'string' && v && /^(dim|edge)\|/.test(k)) out.descriptions[k] = v;
     for (const [k, v] of Object.entries(d.realDimensions || {})) if (Number.isFinite(v) && v > 0) out.realDimensions[k] = v;
     out.objects = (d.objects || []).filter(o => [o.x, o.y, o.w, o.h].every(Number.isFinite) && o.w > 0 && o.h > 0).map(src => {
       const o = {
@@ -432,7 +434,7 @@
     const objectLayers = out.layers.filter(l => l.kind === 'objects');
     for (const o of out.objects) if (!objectLayers.some(l => l.id === o.layer)) o.layer = objectLayers[0].id;
     out.marks = (d.marks || []).filter(m => [m.x, m.y, m.height].every(Number.isFinite) && m.height > 0)
-      .map(m => ({ id: m.id, x: m.x, y: m.y, height: m.height }));
+      .map(m => Object.assign({ id: m.id, x: m.x, y: m.y, height: m.height }, typeof m.description === 'string' && m.description ? { description: m.description } : {}));
     const ids = out.walls.concat(out.openings, out.objects, out.marks).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
@@ -850,6 +852,10 @@
     };
     doc.hiddenDimensions = Array.from(new Set(doc.hiddenDimensions.map(remap)));
     doc.realDimensions = Object.fromEntries(Object.entries(doc.realDimensions).map(([k, v]) => [remap(k), v]));
+    doc.descriptions = Object.fromEntries(Object.entries(doc.descriptions).map(([k, v]) => {
+      const cut = k.indexOf('|') + 1;
+      return [k.slice(0, cut) + remap(k.slice(cut)), v];
+    }));
   }
 
   // ---------- Rendering ----------
@@ -1160,6 +1166,16 @@
     return null;
   }
 
+  // Description of whatever is selected. Dimensions and wall lines keep theirs in doc.descriptions.
+  const keyedNote = () => sel.kind + '|' + sel.key;
+  function selectedDescription() {
+    if (sel.kind === 'dim' || sel.kind === 'edge') return doc.descriptions[keyedNote()] || '';
+    const target = selectedObject();
+    return (target && target.description) || '';
+  }
+  const descriptionField = () =>
+    `<label class="note">Description<textarea data-desc rows="3" placeholder="Notes; not shown on the plan">${esc(selectedDescription())}</textarea></label>`;
+
   function renderPanel() {
     const obj = selectedObject();
     if (sel && !obj) sel = null;
@@ -1203,6 +1219,7 @@
     } else if (sel && sel.kind === 'mark') {
       h = '<h3>Ceiling height mark</h3>' + field('Ceiling height', 'height', obj.height) + field('X', 'x', obj.x) + field('Y', 'y', obj.y) +
         '<p>Drag or use the arrow keys to move it.</p>' +
+        descriptionField() +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'object') {
       h = '<h3>Object</h3>' +
@@ -1215,18 +1232,20 @@
         (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill of its layer.</p>') +
         `<label class="check"><input type="checkbox" data-oflag="hideName"${obj.hideName ? ' checked' : ''}> Hide name on plan</label>` +
         `<label class="check"><input type="checkbox" data-oflag="hideSize"${obj.hideSize ? ' checked' : ''}> Hide dimensions on plan</label>` +
-        `<label class="note">Description<textarea data-desc rows="4" placeholder="Notes about this object; not shown on the plan">${esc(obj.description || '')}</textarea></label>` +
+        descriptionField() +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'wall') {
       h = '<h3>Wall rectangle</h3>' + field('X', 'x', obj.x) + field('Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
+        descriptionField() +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'opening') {
       h = `<h3>${TITLES[obj.type]}</h3>` + openingFields(obj.type, obj);
       if (obj.type === 'door') h += '<div class="row"><button data-act="flipHinge">Flip hinge</button><button data-act="flipSwing">Flip direction</button></div>';
       if (obj.type === 'window') h += '<div class="row"><button data-act="flipSill">Flip sill side</button></div>';
       if (!resolveOpening(obj).ok) h += '<p class="err">Not inside a wall — drag it onto one.</p>';
+      h += descriptionField();
       h += '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'dim') {
       const real = realOf(obj);
@@ -1234,14 +1253,16 @@
         `<label class="field">Real size<input type="number" min="0" step="${UNITS[doc.units].step}" data-real placeholder="—" value="${real ? fmt(real) : ''}"><span>${doc.units}</span></label>` +
         '<p>A real size is shown instead of the drawn one, marked with *. It does not change the plan.</p>' +
         `<div class="row">${real ? '<button data-act="clearReal">Clear real size</button>' : ''}<button data-act="hideDim">Hide dimension</button></div>` +
-        '<p>To bring it back, click the wall line it measures.</p>';
+        '<p>To bring it back, click the wall line it measures.</p>' +
+        descriptionField();
     } else if (sel && sel.kind === 'edge') {
       const own = dimsOf(obj);
       const hiddenOnWall = allDims().filter(d => d.comp === obj.comp && isHidden(d.key)).length;
       h = `<h3>Wall line</h3><p>${fmt(obj.len)} ${doc.units}</p>` +
         `<label class="check"><input type="checkbox" data-act="toggleDim" ${own.some(d => !isHidden(d.key)) ? 'checked' : ''}> Show dimension${own.length > 1 ? 's' : ''}</label>` +
         `<div class="row"><button data-act="showWallDims" ${hiddenOnWall ? '' : 'disabled'}>Show all on this wall${hiddenOnWall ? ` (${hiddenOnWall})` : ''}</button>` +
-        '<button data-act="hideWallDims">Hide all on this wall</button></div>';
+        '<button data-act="hideWallDims">Hide all on this wall</button></div>' +
+        descriptionField();
     } else {
       const hidden = allDims().filter(d => isHidden(d.key));
       h = '<h3>Floorplan</h3><p>Click a wall, door, window or dimension to edit it. Drag to move.</p>' +
@@ -1313,7 +1334,17 @@
     if ('olayer' in ds && object) { object.layer = el.value; return 'doc'; }
     // Text is trimmed only once editing ends, so spaces can be typed mid-name.
     if ('name' in ds && object) { object.name = live ? el.value : el.value.trim(); return 'doc'; }
-    if ('desc' in ds && object) { object.description = live ? el.value : el.value.trim(); return 'doc'; }
+    if ('desc' in ds && sel) {
+      const text = live ? el.value : el.value.trim();
+      if (sel.kind === 'dim' || sel.kind === 'edge') {
+        if (text) doc.descriptions[keyedNote()] = text; else delete doc.descriptions[keyedNote()];
+        return 'doc';
+      }
+      const target = selectedObject();
+      if (!target) return null;
+      if (text || sel.kind === 'object') target.description = text; else delete target.description;
+      return 'doc';
+    }
     if ('rot' in ds && object) { object.rot = normAngle(Number(el.value) || 0); return 'doc'; }
     if (ds.set) { applySetting(el); return 'doc'; }
     if (ds.app) {
