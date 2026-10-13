@@ -161,11 +161,52 @@
     courier: ['Courier New', "'Courier New', Courier, monospace"],
     mono: ['Monospace', 'ui-monospace, Menlo, monospace'],
   };
+  // Fonts added from Google Fonts are stored by family name and referred to as 'g:<name>'.
+  const GOOGLE_FONT_NAME = /^[A-Za-z0-9][A-Za-z0-9 ]{0,59}$/;
+  const fontCss = key => key.startsWith('g:') ? `'${key.slice(2)}', sans-serif` : FONTS[key][1];
+  const fontChoices = () => Object.entries(FONTS).map(([k, v]) => [k, v[0]])
+    .concat(doc.settings.googleFonts.map(n => ['g:' + n, n + ' (Google)']));
+
+  const loadedGoogleFonts = new Set();
+  function googleFontLink(name, weight) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name).replace(/%20/g, '+')}${weight ? ':wght@' + weight : ''}&display=swap`;
+    document.head.appendChild(link);
+    return link;
+  }
+  // Loads the fonts a plan uses. The bold cut is requested separately because not every family has one.
+  function loadGoogleFonts() {
+    for (const name of doc.settings.googleFonts) {
+      if (loadedGoogleFonts.has(name)) continue;
+      loadedGoogleFonts.add(name);
+      googleFontLink(name);
+      googleFontLink(name, 700);
+    }
+  }
+  function addGoogleFont(raw) {
+    const name = raw.trim().replace(/\s+/g, ' ');
+    if (!GOOGLE_FONT_NAME.test(name)) return toast('Enter the font name as shown on fonts.google.com, e.g. Roboto.');
+    if (doc.settings.googleFonts.includes(name)) return toast(`${name} is already added.`);
+    const link = googleFontLink(name);
+    link.onload = () => {
+      loadedGoogleFonts.add(name);
+      googleFontLink(name, 700);
+      doc.settings.googleFonts.push(name);
+      commit();
+      toast(`${name} added — choose it in a Font list.`);
+    };
+    link.onerror = () => {
+      link.remove();
+      toast(`Could not load “${name}” from Google Fonts. Check the name and your internet connection.`);
+    };
+  }
+
   const DIM_ENDS = { arrow: 'Arrows, filled', vNarrow: 'V-arrows, narrow', vWide: 'V-arrows, wide', tick: 'Ticks', dot: 'Dots', none: 'None' };
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a' };
+    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [] };
   }
 
   function cleanSettings(raw) {
@@ -173,7 +214,9 @@
     const colour = v => /^#[0-9a-f]{6}$/i.test(v);
     for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor']) if (colour(src[k])) out[k] = src[k];
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
-    for (const k of ['dimFont', 'objFont']) if (FONTS[src[k]]) out[k] = src[k];
+    if (Array.isArray(src.googleFonts)) out.googleFonts = Array.from(new Set(src.googleFonts.filter(n => typeof n === 'string' && GOOGLE_FONT_NAME.test(n))));
+    const knownFont = k => !!FONTS[k] || (typeof k === 'string' && k.startsWith('g:') && out.googleFonts.includes(k.slice(2)));
+    for (const k of ['dimFont', 'objFont']) if (knownFont(src[k])) out[k] = src[k];
     for (const k of ['dimFontSize', 'objFontSize']) if (Number.isFinite(src[k])) out[k] = Math.min(Math.max(Math.round(src[k]), 6), 40);
     if (Number.isFinite(src.dimDistance)) out.dimDistance = Math.min(Math.max(Math.round(src.dimDistance), 20), 500);
     return out;
@@ -412,11 +455,11 @@
       `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="#fff" fill-opacity=".85" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
     // Name and size, as many lines as fit; the text always turns with the object.
     const size = st.objFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
-    const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * 0.6 + 6);
+    const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * (t === o.name ? 0.66 : 0.6) + 6);
     const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${FONTS[st.objFont][1]};font-size:${size}px" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}">${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && o.name ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}">${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected) {
@@ -605,7 +648,7 @@
     if (t * view.scale >= st.dimFontSize + 2 && W * view.scale >= label.length * st.dimFontSize * 0.64 + 8) {
       const [x, y] = P(0, 0);
       const rot = o.axis === 'v' ? ` transform="rotate(-90 ${f(x)} ${f(y)})"` : '';
-      h += `<text x="${f(x)}" y="${f(y)}" style="font-family:${FONTS[st.dimFont][1]};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${rot}>${label}</text>`;
+      h += `<text x="${f(x)}" y="${f(y)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${rot}>${label}</text>`;
     }
     return h + '</g>';
   }
@@ -639,7 +682,7 @@
     return ext(g.ax, g.ay) + ext(g.bx, g.by) +
       line(g.a, g.b, `stroke="${color}" stroke-width="${sw}"`) +
       dimEndSvg(g.a, g.b, color) + dimEndSvg(g.b, g.a, color) +
-      `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${FONTS[st.dimFont][1]};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
+      `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
   }
 
   function render() {
@@ -724,14 +767,19 @@
         '<h4>Dimensions</h4>' +
         row('Line ends', choice('dimEnds', Object.entries(DIM_ENDS))) +
         row('Line colour', colour('dimColor'), '') +
-        row('Font', choice('dimFont', Object.entries(FONTS).map(([k, v]) => [k, v[0]]))) +
+        row('Font', choice('dimFont', fontChoices())) +
         row('Font size', number('dimFontSize', 6, 40), 'px') +
         row('Font colour', colour('dimFontColor'), '') +
         row('Distance from wall', number('dimDistance', 20, 500), '%') +
         '<h4>Objects</h4>' +
-        row('Font', choice('objFont', Object.entries(FONTS).map(([k, v]) => [k, v[0]]))) +
+        row('Font', choice('objFont', fontChoices())) +
         row('Font size', number('objFontSize', 6, 40), 'px') +
         row('Font colour', colour('objFontColor'), '') +
+        '<h4>Google Fonts</h4>' +
+        '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
+        (st.googleFonts.length ? '<ul class="hidden-dims">' + st.googleFonts.map(n =>
+          `<li><span style="font-family:${fontCss('g:' + n)}">${n}</span><button data-act="removeGoogleFont" data-font="${n}">Remove</button></li>`).join('') + '</ul>' : '') +
+        '<p>Added fonts appear in the Font lists above. They are loaded from Google, so they need an internet connection.</p>' +
         '<p>Settings are saved with this plan. New plans start with the same settings.</p>' +
         '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
@@ -846,10 +894,20 @@
   });
   panel.addEventListener('mouseleave', () => setPreviewDim(null));
 
+  panel.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && 'gfont' in e.target.dataset) { e.preventDefault(); addGoogleFont(e.target.value); }
+  });
+
   panel.addEventListener('click', e => {
     const act = e.target.dataset.act;
     if (!act) return;
     const obj = selectedObject();
+    if (act === 'addGoogleFont') return addGoogleFont(panel.querySelector('[data-gfont]').value);
+    if (act === 'removeGoogleFont') {
+      // cleanSettings puts any font that used the removed family back to the system font
+      doc.settings = cleanSettings(Object.assign({}, doc.settings, { googleFonts: doc.settings.googleFonts.filter(n => n !== e.target.dataset.font) }));
+      return commit();
+    }
     if (act === 'delete') return deleteSelection();
     if (act === 'hideDim') return deleteSelection();
     if (act === 'flipHinge') obj.hinge = obj.hinge === 'start' ? 'end' : 'start';
@@ -910,6 +968,7 @@
   }
 
   function renderAll() {
+    loadGoogleFonts();
     render();
     renderPanel();
     syncUnits();
