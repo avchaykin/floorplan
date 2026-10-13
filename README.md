@@ -25,12 +25,14 @@ An internet connection is needed only for Google Fonts, if you add any.
 - Every straight wall segment gets a dimension. A wall line with openings gets a chain (wall part, opening, wall part…) plus the overall length.
 - Any dimension can be hidden, and brought back from the hidden-dimensions list or by clicking the wall line.
 - A dimension can carry a "real size" that is shown instead of the drawn length, marked with `*`, without changing the plan.
+- Free dimensions can be drawn between any two points, with optional rounding or a typed-in real size.
 - Ceiling height marks and compass roses live on the dimensions layer.
 
-**Objects, titles**
-- Objects are free rectangles (furniture and the like) that can be moved, resized and rotated. They have a name, an optional description, a fill style (solid, diagonal, cross-hatch) and colour.
-- Each object can show, per side: its side length, the gap to the nearest other object, and the gap to the nearest wall.
+**Objects, titles, notes**
+- Objects are free shapes (furniture and the like): rectangles, round shapes, or polygons edited corner by corner. They can be moved, resized and rotated. They have a name, an optional description, a fill style (solid, diagonal, cross-hatch) and colour.
+- Each rectangular object can show, per side: its side length, the gap to the nearest other object, and the gap to the nearest wall.
 - Titles are free text that can sit on any layer.
+- Comment notes are sticky-note shapes with wrapped text and a colour.
 
 **Layers**
 - Fixed Walls and Dimensions layers, plus any number of object layers.
@@ -56,9 +58,12 @@ An internet connection is needed only for Google Fonts, if you add any.
 | Select / move | `V`, then click or drag |
 | Wall | `W`, drag a rectangle |
 | Door / doorway / window | `D` / `O` / `N`, click a wall |
-| Object | `B`, drag a rectangle or click |
+| Rectangle / round object | `B` / `E`, drag or click |
+| Polygon object | `G`, click each corner; `Enter` or double-click to finish |
+| Free dimension | `M`, drag from start to end |
 | Ceiling height mark | `H`, click |
 | Title | `T`, click |
+| Comment note | `P`, drag or click |
 | Compass rose | `C`, click |
 | Nudge the selection | Arrow keys (one snap step) |
 | Delete, or hide a dimension | `Delete` |
