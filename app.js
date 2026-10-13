@@ -208,13 +208,15 @@
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff' };
+    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
   }
 
   function cleanSettings(raw) {
     const out = defaultSettings(), src = raw || {};
     const colour = v => /^#[0-9a-f]{6}$/i.test(v);
-    for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor', 'objFillColor']) if (colour(src[k])) out[k] = src[k];
+    for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor', 'objFillColor', 'objBorderColor']) if (colour(src[k])) out[k] = src[k];
+    if (Number.isFinite(src.objBorderSize)) out.objBorderSize = Math.min(Math.max(Math.round(src.objBorderSize * 10) / 10, 0), 10);
+    if (Number.isFinite(src.objHatchSpacing)) out.objHatchSpacing = Math.min(Math.max(Math.round(src.objHatchSpacing), 3), 60);
     if (FILLS[src.objFillStyle]) out.objFillStyle = src.objFillStyle;
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
     if (Array.isArray(src.googleFonts)) out.googleFonts = Array.from(new Set(src.googleFonts.filter(n => typeof n === 'string' && GOOGLE_FONT_NAME.test(n))));
@@ -465,18 +467,20 @@
     const box = `x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}"`;
     if (style === 'solid') return `<rect ${box} fill="${color}" fill-opacity=".85"/>`;
     const id = 'objfill-' + (o.id || 'new');
-    const left = 'M0 0L8 8M-2 6L2 10M6 -2L10 2', right = 'M0 8L8 0M-2 2L2 -2M6 10L10 6';
+    const n = doc.settings.objHatchSpacing;   // pattern tile size; extra stubs keep the lines joined at tile corners
+    const left = `M0 0L${n} ${n}M-2 ${n - 2}L2 ${n + 2}M${n - 2} -2L${n + 2} 2`, right = `M0 ${n}L${n} 0M-2 2L2 -2M${n - 2} ${n + 2}L${n + 2} ${n - 2}`;
     const d = style === 'diagLeft' ? left : style === 'diagRight' ? right : left + right;
-    return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="8" height="8"><path d="${d}" stroke="${color}" stroke-width="1.2" fill="none"/></pattern></defs>` +
+    return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${n}" height="${n}"><path d="${d}" stroke="${color}" stroke-width="1.2" fill="none"/></pattern></defs>` +
       `<rect ${box} fill="#fff" fill-opacity=".85"/><rect ${box} fill="url(#${id})"/>`;
   }
 
   function objectSvg(o, selected, preview) {
     const st = doc.settings, [cx, cy] = S(o.x, o.y), pw = o.w * view.scale, ph = o.h * view.scale;
-    const stroke = selected || preview ? ACCENT : INK;
+    const stroke = selected || preview ? ACCENT : st.objBorderColor;
+    const border = selected || preview ? Math.max(st.objBorderSize, selected ? 2 : 1.2) : st.objBorderSize;
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
       objectFillSvg(o, pw, ph) +
-      `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="none" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
+      `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="none" stroke="${border ? stroke : 'none'}" stroke-width="${border}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
     const hatched = (o.fillStyle || st.objFillStyle) !== 'solid';
     // Name and size, as many lines as fit; the text always turns with the object.
     const size = st.objFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
@@ -786,7 +790,7 @@
       const st = doc.settings;
       const row = (label, control, unit) => `<label class="field">${label}${control}${unit === undefined ? '' : `<span>${unit}</span>`}</label>`;
       const colour = key => `<input type="color" data-set="${key}" value="${st[key]}">`;
-      const number = (key, min, max) => `<input type="number" data-set="${key}" min="${min}" max="${max}" value="${st[key]}">`;
+      const number = (key, min, max, step) => `<input type="number" data-set="${key}" min="${min}" max="${max}" step="${step || 1}" value="${st[key]}">`;
       const choice = (key, options) => `<select data-set="${key}">${options.map(([v, t]) => `<option value="${v}"${st[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
       h = '<h3>Plan settings</h3><h4>Walls</h4>' + row('Colour', colour('wallColor'), '') +
         '<h4>Dimensions</h4>' +
@@ -802,6 +806,9 @@
         row('Font colour', colour('objFontColor'), '') +
         row('Fill style', choice('objFillStyle', Object.entries(FILLS))) +
         row('Fill colour', colour('objFillColor'), '') +
+        row('Hatch spacing', number('objHatchSpacing', 3, 60), 'px') +
+        row('Border size', number('objBorderSize', 0, 10, 0.5), 'px') +
+        row('Border colour', colour('objBorderColor'), '') +
         '<h4>Google Fonts</h4>' +
         '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
         (st.googleFonts.length ? '<ul class="hidden-dims">' + st.googleFonts.map(n =>
