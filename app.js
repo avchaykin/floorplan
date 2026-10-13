@@ -151,7 +151,72 @@
   const $ = s => document.querySelector(s);
   const svg = $('#canvas'), panel = $('#panel');
 
-  const INK = '#2b2b2b', ACCENT = '#1a73e8', BAD = '#c62828';
+  const BAD = '#c62828';
+  let INK, ACCENT, PAPER, JAMB;   // canvas colours of the active theme, set by setPalette()
+
+  // Each theme has a light and a dark variant: `ui` colours go to CSS variables, `canvas` colours to the drawing.
+  // wall/dim/dimText/objText/objFill/objBorder replace plan colours that are still at their built-in defaults.
+  const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  const THEMES = {
+    default: {
+      name: 'Default',
+      light: {
+        ui: { bg: '#f3f4f6', surface: '#ffffff', border: '#d5d8dd', text: '#1f2328', muted: '#6b7280', accent: '#1a73e8', 'on-accent': '#ffffff', hover: '#eef1f5', active: '#e3eefd', off: '#b6bcc5', warn: '#b45309', err: '#c62828', ok: '#2e7d32', font: SANS },
+        canvas: { paper: '#ffffff', gridMinor: '#eef0f3', gridMajor: '#d9dde3', ink: '#2b2b2b', accent: '#1a73e8', jamb: '#9aa0a6', wall: '#4d4d4d', dim: '#5f6b7a', dimText: '#5f6b7a', objText: '#5f6b7a', objFill: '#ffffff', objBorder: '#2b2b2b' },
+      },
+      dark: {
+        ui: { bg: '#16181c', surface: '#1f2227', border: '#363b44', text: '#e6e8eb', muted: '#9aa3af', accent: '#5aa2ff', 'on-accent': '#0b1220', hover: '#2a2e35', active: '#253a5a', off: '#5b626d', warn: '#f0a35a', err: '#ff7b72', ok: '#6fcf7c', font: SANS },
+        canvas: { paper: '#1b1d21', gridMinor: '#23262b', gridMajor: '#30343b', ink: '#d7dae0', accent: '#5aa2ff', jamb: '#6b7280', wall: '#b9bec7', dim: '#9aa3af', dimText: '#c3c9d2', objText: '#c3c9d2', objFill: '#262a30', objBorder: '#d7dae0' },
+      },
+    },
+    blueprint: {
+      name: 'Blueprint',
+      light: {
+        ui: { bg: '#e8f0f8', surface: '#f6f9fc', border: '#b9cde2', text: '#12324f', muted: '#55718d', accent: '#1259a8', 'on-accent': '#ffffff', hover: '#dfeaf5', active: '#cfe0f2', off: '#a9bfd6', warn: '#a8500a', err: '#b3261e', ok: '#1f6f3a', font: SANS },
+        canvas: { paper: '#f3f8fd', gridMinor: '#e2edf7', gridMajor: '#c9dcef', ink: '#12406d', accent: '#d9480f', jamb: '#8fb0d0', wall: '#1a4f85', dim: '#3d6d9c', dimText: '#12406d', objText: '#12406d', objFill: '#ffffff', objBorder: '#12406d' },
+      },
+      dark: {
+        ui: { bg: '#0b2a4a', surface: '#0f355c', border: '#2b5b8c', text: '#e8f1fb', muted: '#9dbbd9', accent: '#ffd54a', 'on-accent': '#0b2a4a', hover: '#174572', active: '#1d5288', off: '#4f7aa6', warn: '#ffc66b', err: '#ff9d94', ok: '#8fe3a0', font: SANS },
+        canvas: { paper: '#123f6d', gridMinor: '#17487a', gridMajor: '#22598f', ink: '#eaf3ff', accent: '#ffd54a', jamb: '#7fa8d1', wall: '#eaf3ff', dim: '#bcd6f0', dimText: '#eaf3ff', objText: '#eaf3ff', objFill: '#164a7e', objBorder: '#eaf3ff' },
+      },
+    },
+    scifi: {
+      name: 'Sci-fi',
+      light: {
+        ui: { bg: '#e9f1f2', surface: '#f7fbfb', border: '#b7d3d6', text: '#0d2b30', muted: '#4f7a80', accent: '#008c9e', 'on-accent': '#ffffff', hover: '#dcebed', active: '#c7e4e8', off: '#a5c3c7', warn: '#9a5b00', err: '#b3261e', ok: '#16794a', font: MONO },
+        canvas: { paper: '#f4fafa', gridMinor: '#e2eff0', gridMajor: '#c8dfe2', ink: '#0d4750', accent: '#c2189b', jamb: '#8fb9be', wall: '#0a6f7d', dim: '#2f8590', dimText: '#0d4750', objText: '#0d4750', objFill: '#ffffff', objBorder: '#0a6f7d' },
+      },
+      dark: {
+        ui: { bg: '#05080d', surface: '#0a1118', border: '#14323d', text: '#c8f7ff', muted: '#5f9aa6', accent: '#00e5ff', 'on-accent': '#001318', hover: '#0f1f29', active: '#0d3540', off: '#2c5560', warn: '#ffb84a', err: '#ff6b81', ok: '#39ffb6', font: MONO },
+        canvas: { paper: '#060b11', gridMinor: '#0b171f', gridMajor: '#10262f', ink: '#7df9ff', accent: '#ff3df2', jamb: '#1f6f7a', wall: '#00d8f0', dim: '#3fbfcc', dimText: '#9af6ff', objText: '#9af6ff', objFill: '#0c1a22', objBorder: '#39ffb6' },
+      },
+    },
+  };
+  const THEME_COLOURS = { wallColor: 'wall', dimColor: 'dim', dimFontColor: 'dimText', objFontColor: 'objText', objFillColor: 'objFill', objBorderColor: 'objBorder' };
+
+  // Theme and mode are a preference of this browser, not part of the plan.
+  const appearance = { theme: 'default', mode: 'system' };
+  try {
+    const saved = JSON.parse(localStorage.getItem('floorplan-appearance') || '{}');
+    if (THEMES[saved.theme]) appearance.theme = saved.theme;
+    if (['system', 'light', 'dark'].includes(saved.mode)) appearance.mode = saved.mode;
+  } catch (e) { /* keep defaults */ }
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+  const currentMode = () => appearance.mode === 'system' ? (systemDark.matches ? 'dark' : 'light') : appearance.mode;
+
+  let pal;
+  function setPalette(canvasColours) {
+    pal = canvasColours;
+    INK = pal.ink; ACCENT = pal.accent; PAPER = pal.paper; JAMB = pal.jamb;
+  }
+  function applyAppearance() {
+    const mode = currentMode(), variant = THEMES[appearance.theme][mode], root = document.documentElement;
+    for (const [k, v] of Object.entries(variant.ui)) root.style.setProperty('--' + k, v);
+    root.style.setProperty('--paper', variant.canvas.paper);
+    root.style.colorScheme = mode;   // native controls (scrollbars, selects, colour pickers) follow
+    setPalette(variant.canvas);
+  }
+  applyAppearance();
   const DIM_OFFSET = 18;          // px between wall face and dimension line at 100% distance
   const FONTS = {
     system: ['System', "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
@@ -261,6 +326,15 @@
     return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
   }
 
+  // Plan colours still at their built-in default follow the theme; colours the user picked are kept as they are.
+  const BUILTIN_SETTINGS = defaultSettings();
+  function themed(settings) {
+    const out = Object.assign({}, settings);
+    for (const [key, slot] of Object.entries(THEME_COLOURS)) if (String(out[key]).toLowerCase() === BUILTIN_SETTINGS[key]) out[key] = pal[slot];
+    return out;
+  }
+  const planStyle = () => themed(doc.settings);
+
   function cleanSettings(raw) {
     const out = defaultSettings(), src = raw || {};
     const colour = v => /^#[0-9a-f]{6}$/i.test(v);
@@ -361,7 +435,7 @@
     : layer.frozen ? `The “${layer.name}” layer is frozen — unfreeze it in Layers first.` : null;
   const objLayer = o => layerById(o.layer) || specialLayer('objects');
   // Effective object defaults: plan settings with the layer's overrides on top.
-  const objSettings = o => Object.assign({}, doc.settings, objLayer(o).settings);
+  const objSettings = o => themed(Object.assign({}, doc.settings, objLayer(o).settings));
   // Layer that receives new objects: the highlighted one if it holds objects, else the topmost object layer.
   function targetLayer() {
     const a = layerById(activeLayer);
@@ -552,7 +626,7 @@
     const left = `M0 0L${n} ${n}M-2 ${n - 2}L2 ${n + 2}M${n - 2} -2L${n + 2} 2`, right = `M0 ${n}L${n} 0M-2 2L2 -2M${n - 2} ${n + 2}L${n + 2} ${n - 2}`;
     const d = style === 'diagLeft' ? left : style === 'diagRight' ? right : left + right;
     return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${n}" height="${n}"><path d="${d}" stroke="${color}" stroke-width="1.2" fill="none"/></pattern></defs>` +
-      `<rect ${box} fill="#fff" fill-opacity=".85"/><rect ${box} fill="url(#${id})"/>`;
+      `<rect ${box} fill="${PAPER}" fill-opacity=".85"/><rect ${box} fill="url(#${id})"/>`;
   }
 
   function objectSvg(o, selected, preview) {
@@ -570,7 +644,7 @@
     const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="#fff" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="${PAPER}" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected) {
@@ -578,8 +652,8 @@
       g += line(top.p, rot.p, `stroke="${ACCENT}" stroke-width="1"`);
       for (const hp of hs) {
         g += hp.id === 'rot'
-          ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="#fff" stroke="${ACCENT}" stroke-width="1.5"/>`
-          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="#fff" stroke="${ACCENT}" stroke-width="1.5"/>`;
+          ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`
+          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
       }
     }
     return g;
@@ -596,10 +670,10 @@
   }
 
   function markSvg(m, selected) {
-    const st = doc.settings, b = markBox(m);
+    const st = planStyle(), b = markBox(m);
     const color = selected ? ACCENT : st.dimColor, textColor = selected ? ACCENT : st.dimFontColor;
     const tx = b.x + b.pad, half = b.tri / 2, top = b.cy - b.tri * 0.43, bottom = b.cy + b.tri * 0.43;
-    return `<rect x="${f(b.x)}" y="${f(b.y)}" width="${f(b.w)}" height="${f(b.h)}" rx="${f(b.h * 0.28)}" fill="#fff" stroke="${color}" stroke-width="${selected ? 2 : 1.2}"/>` +
+    return `<rect x="${f(b.x)}" y="${f(b.y)}" width="${f(b.w)}" height="${f(b.h)}" rx="${f(b.h * 0.28)}" fill="${PAPER}" stroke="${color}" stroke-width="${selected ? 2 : 1.2}"/>` +
       `<path d="${poly([[tx + half, top], [tx + b.tri, bottom], [tx, bottom]])}" fill="${textColor}"/>` +
       `<text x="${f(tx + b.tri + b.gap)}" y="${f(b.cy)}" style="font-family:${fontCss(st.dimFont)};font-size:${b.size}px" text-anchor="start" dominant-baseline="central" fill="${textColor}">${b.text}</text>`;
   }
@@ -743,7 +817,7 @@
       return `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${f(view.ox)}" y="${f(view.oy)}" width="${px}" height="${px}">` +
         `<path d="M0 0H${px}M0 0V${px}" stroke="${color}" stroke-width="1" fill="none"/></pattern>`;
     };
-    return `<defs>${pattern('gMinor', step, '#eef0f3')}${pattern('gMajor', major, '#d9dde3')}</defs>` +
+    return `<defs>${pattern('gMinor', step, pal.gridMinor)}${pattern('gMajor', major, pal.gridMajor)}</defs>` +
       `<rect width="${w}" height="${h}" fill="url(#gMinor)"/><rect width="${w}" height="${h}" fill="url(#gMajor)"/>`;
   }
 
@@ -758,15 +832,15 @@
 
     if (o.type === 'window') {
       const side = o.sillSide || 1;
-      h += `<path d="${box(-o.sillSize / 2, o.sillSize / 2, side * t / 2, side * (t / 2 + o.sillDepth))}" fill="#fff" stroke="${stroke}" stroke-width="${sw}"/>`;
-      h += `<path d="${box(-W / 2, W / 2, -t / 2, t / 2)}" fill="#fff" stroke="${stroke}" stroke-width="${sw}"/>`;
+      h += `<path d="${box(-o.sillSize / 2, o.sillSize / 2, side * t / 2, side * (t / 2 + o.sillDepth))}" fill="${PAPER}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      h += `<path d="${box(-W / 2, W / 2, -t / 2, t / 2)}" fill="${PAPER}" stroke="${stroke}" stroke-width="${sw}"/>`;
       for (const b of [-t / 6, t / 6]) h += line(P(-W / 2, b), P(W / 2, b), `stroke="${stroke}" stroke-width="1"`);
     } else {
-      h += `<path d="${box(-W / 2, W / 2, -t / 2, t / 2)}" fill="#fff" stroke="${stroke}" stroke-width="${sw}"/>`;
+      h += `<path d="${box(-W / 2, W / 2, -t / 2, t / 2)}" fill="${PAPER}" stroke="${stroke}" stroke-width="${sw}"/>`;
       if (o.type === 'door') {
         const D = Math.min(o.doorSize, W), jamb = (W - D) / 2;
         if (jamb > 0) {
-          h += `<path d="${box(-W / 2, -W / 2 + jamb, -t / 2, t / 2)}${box(W / 2 - jamb, W / 2, -t / 2, t / 2)}" fill="#9aa0a6" stroke="${stroke}" stroke-width="1"/>`;
+          h += `<path d="${box(-W / 2, -W / 2 + jamb, -t / 2, t / 2)}${box(W / 2 - jamb, W / 2, -t / 2, t / 2)}" fill="${JAMB}" stroke="${stroke}" stroke-width="1"/>`;
         }
         // Leaf drawn open at 90° with its swing arc back to the closed position.
         const hingeA = o.hinge === 'start' ? -D / 2 : D / 2, dir = o.hinge === 'start' ? 1 : -1, s = o.swing || 1;
@@ -782,11 +856,11 @@
 
     // Size label inside the opening when there is room for it; styled like the dimensions.
     const label = fmt(o.type === 'door' ? Math.min(o.doorSize, W) : W);
-    const st = doc.settings, textColor = stroke === INK ? st.dimFontColor : stroke;
+    const st = planStyle(), textColor = stroke === INK ? st.dimFontColor : stroke;
     if (t * view.scale >= st.dimFontSize + 2 && W * view.scale >= label.length * st.dimFontSize * 0.64 + 8) {
       const [x, y] = P(0, 0);
       const rot = o.axis === 'v' ? ` transform="rotate(-90 ${f(x)} ${f(y)})"` : '';
-      h += `<text x="${f(x)}" y="${f(y)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${rot}>${label}</text>`;
+      h += `<text x="${f(x)}" y="${f(y)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="${PAPER}" stroke-width="3" paint-order="stroke"${rot}>${label}</text>`;
     }
     return h + '</g>';
   }
@@ -813,14 +887,14 @@
   }
 
   function dimSvg(seg, selected) {
-    const st = doc.settings, g = dimGeom(seg), sw = selected ? 1.8 : 1;
+    const st = planStyle(), g = dimGeom(seg), sw = selected ? 1.8 : 1;
     const color = selected ? ACCENT : st.dimColor, textColor = selected ? ACCENT : st.dimFontColor;
     const ext = (x, y) => line([x + seg.nx * 3, y + seg.ny * 3], [x + seg.nx * (seg.off + 4), y + seg.ny * (seg.off + 4)], `stroke="${color}" stroke-width="0.8"`);
     const rot = g.vertical ? ` transform="rotate(-90 ${f(g.tx)} ${f(g.ty)})"` : '';
     return ext(g.ax, g.ay) + ext(g.bx, g.by) +
       line(g.a, g.b, `stroke="${color}" stroke-width="${sw}"`) +
       dimEndSvg(g.a, g.b, color) + dimEndSvg(g.b, g.a, color) +
-      `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
+      `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="${PAPER}" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
   }
 
   // Everything that belongs to the plan itself (no grid, handles or previews); also what gets exported.
@@ -832,7 +906,7 @@
       if (layer.kind === 'walls') {
         if (walls.loops.length) {
           const d = walls.loops.map(l => poly(l.points.map(p => S(p[0], p[1])))).join('');
-          h.push(`<path d="${d}" fill="${doc.settings.wallColor}" fill-rule="evenodd"/>`);
+          h.push(`<path d="${d}" fill="${planStyle().wallColor}" fill-rule="evenodd"/>`);
         }
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
@@ -860,7 +934,7 @@
       if (r) {
         const [x, y] = S(r.x, r.y);
         h.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(r.w * view.scale)}" height="${f(r.h * view.scale)}" fill="rgba(26,115,232,.18)" stroke="${ACCENT}" stroke-width="1.5" stroke-dasharray="5 3"/>`);
-        for (const hp of handlePoints(r)) h.push(`<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="#fff" stroke="${ACCENT}" stroke-width="1.5"/>`);
+        for (const hp of handlePoints(r)) h.push(`<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`);
       }
     }
 
@@ -871,8 +945,8 @@
     if (drag && drag.kind === 'newwall') {
       const r = dragRect(drag);
       const [x, y] = S(r.x, r.y);
-      h.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(r.w * view.scale)}" height="${f(r.h * view.scale)}" fill="${doc.settings.wallColor}" fill-opacity=".55" stroke="${ACCENT}" stroke-width="1"/>`);
-      h.push(`<text x="${f(x + r.w * view.scale / 2)}" y="${f(y - 10)}" text-anchor="middle" fill="${ACCENT}" stroke="#fff" stroke-width="3" paint-order="stroke" font-weight="600">${fmt(r.w)} × ${fmt(r.h)}</text>`);
+      h.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(r.w * view.scale)}" height="${f(r.h * view.scale)}" fill="${planStyle().wallColor}" fill-opacity=".55" stroke="${ACCENT}" stroke-width="1"/>`);
+      h.push(`<text x="${f(x + r.w * view.scale / 2)}" y="${f(y - 10)}" text-anchor="middle" fill="${ACCENT}" stroke="${PAPER}" stroke-width="3" paint-order="stroke" font-weight="600">${fmt(r.w)} × ${fmt(r.h)}</text>`);
     }
     if (previewDim) {
       const dim = allDims().find(d => d.key === previewDim);
@@ -927,16 +1001,16 @@
   function layerPanelHtml(layer) {
     const done = '<div class="row"><button data-act="closeLayerPanel" class="primary">Done</button></div>';
     if (layer.kind === 'walls') {
-      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(doc.settings, 'data-set')) + done;
+      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(planStyle(), 'data-set')) + done;
     }
     if (layer.kind === 'dimensions') {
-      return '<h3>Dimensions layer</h3><p>Holds all dimension lines.</p>' + dimSettingRows(settingControls(doc.settings, 'data-set')) + done;
+      return '<h3>Dimensions layer</h3><p>Holds all dimension lines.</p>' + dimSettingRows(settingControls(planStyle(), 'data-set')) + done;
     }
     const own = Object.keys(layer.settings).length;
     return '<h3>Layer</h3>' +
       `<label class="field">Name<input type="text" data-lname value="${esc(layer.name)}"></label>` +
       '<h4>Object defaults on this layer</h4>' +
-      objectSettingRows(settingControls(Object.assign({}, doc.settings, layer.settings), 'data-lset', new Set(Object.keys(layer.settings)))) +
+      objectSettingRows(settingControls(themed(Object.assign({}, doc.settings, layer.settings)), 'data-lset', new Set(Object.keys(layer.settings)))) +
       (own ? `<p>● ${own} setting${own > 1 ? 's' : ''} set on this layer; the rest follow the plan settings.</p>`
         : '<p>This layer follows the plan settings. Change a value here to set it for this layer only.</p>') +
       `<div class="row"><button data-act="clearLayerSettings" ${own ? '' : 'disabled'}>Use plan settings</button><button data-act="closeLayerPanel" class="primary">Done</button></div>`;
@@ -1029,8 +1103,13 @@
     if (layerPanel) {
       h = layerPanelHtml(layerById(layerPanel));
     } else if (showSettings) {
-      const st = doc.settings, c = settingControls(st, 'data-set');
-      h = '<h3>Plan settings</h3><h4>Walls</h4>' + wallSettingRows(c) +
+      const st = doc.settings, c = settingControls(planStyle(), 'data-set');
+      const option = (value, label, current) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`;
+      h = '<h3>Settings</h3><h4>Appearance</h4>' +
+        `<label class="field">Theme<select data-app="theme">${Object.entries(THEMES).map(([k, t]) => option(k, t.name, appearance.theme)).join('')}</select></label>` +
+        `<label class="field">Mode<select data-app="mode">${[['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']].map(([k, t]) => option(k, t, appearance.mode)).join('')}</select></label>` +
+        '<p>Theme and mode apply to this browser. Plan colours left at their defaults follow the theme; colours you pick below stay as chosen.</p>' +
+        '<h4>Walls</h4>' + wallSettingRows(c) +
         '<h4>Dimensions</h4>' + dimSettingRows(c) +
         '<h4>Objects</h4>' + objectSettingRows(c) +
         '<p>Object settings can also be set per layer (select a layer, then the cog).</p>' +
@@ -1159,6 +1238,12 @@
     if ('desc' in ds && object) { object.description = live ? el.value : el.value.trim(); return 'doc'; }
     if ('rot' in ds && object) { object.rot = normAngle(Number(el.value) || 0); return 'doc'; }
     if (ds.set) { applySetting(el); return 'doc'; }
+    if (ds.app) {
+      appearance[ds.app] = el.value;
+      localStorage.setItem('floorplan-appearance', JSON.stringify(appearance));
+      applyAppearance();
+      return 'view';
+    }
     if ('real' in ds && sel && sel.kind === 'dim') {
       const mm = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
       if (mm > 0) doc.realDimensions[sel.key] = mm; else delete doc.realDimensions[sel.key];
@@ -1179,6 +1264,7 @@
   panel.addEventListener('input', e => {
     const changed = applyPanelInput(e.target, true);
     if (changed === 'doc') { liveDirty = true; rebuild(); renderLayers(); render(); }
+    else if (changed === 'view') render();
     else if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
   });
 
@@ -1190,7 +1276,7 @@
     const src = e.target, changed = applyPanelInput(src, false);
     if (!changed) return;
     if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
-    else { liveDirty = false; commit(true); }
+    else if (changed === 'doc') { liveDirty = false; commit(true); }
     setTimeout(() => {
       panelSource = src;
       renderPanel();
@@ -1881,11 +1967,13 @@
     return css;
   }
 
-  async function buildExportSvg() {
-    const keep = sel;
+  async function buildExportSvg(lightColours) {
+    const keep = sel, keepPal = pal;
     sel = null;                 // no selection highlight or handles in the export
+    if (lightColours) setPalette(THEMES.default.light.canvas);
+    const paper = PAPER;
     let body;
-    try { body = layersSvg(); } finally { sel = keep; }
+    try { body = layersSvg(); } finally { sel = keep; setPalette(keepPal); }
     // Measure the drawing in a hidden SVG so labels and dimension lines are included in the frame.
     const probe = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     probe.setAttribute('style', 'position:absolute;left:-99999px;top:0;width:10px;height:10px;overflow:hidden');
@@ -1897,12 +1985,12 @@
     const x = bb.x - EXPORT_MARGIN, y = bb.y - EXPORT_MARGIN, w = bb.width + 2 * EXPORT_MARGIN, hgt = bb.height + 2 * EXPORT_MARGIN;
     const fonts = await embeddedFontCss(body);
     const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hgt}" viewBox="${x} ${y} ${w} ${hgt}">` +
-      `<style>${fonts}</style><rect x="${x}" y="${y}" width="${w}" height="${hgt}" fill="#fff"/>${body}</svg>`;
-    return { svgText, w, h: hgt };
+      `<style>${fonts}</style><rect x="${x}" y="${y}" width="${w}" height="${hgt}" fill="${paper}"/>${body}</svg>`;
+    return { svgText, w, h: hgt, paper };
   }
 
-  async function renderExportCanvas(longSide) {
-    const built = await buildExportSvg();
+  async function renderExportCanvas(longSide, lightColours) {
+    const built = await buildExportSvg(lightColours);
     if (!built) return null;
     const k = longSide / Math.max(built.w, built.h);
     const url = URL.createObjectURL(new Blob([built.svgText], { type: 'image/svg+xml' }));
@@ -1914,7 +2002,7 @@
       canvas.width = Math.round(built.w * k);
       canvas.height = Math.round(built.h * k);
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = built.paper;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       return canvas;
@@ -1970,10 +2058,10 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   }
 
-  async function exportPlan(format, longSide) {
+  async function exportPlan(format, longSide, lightColours) {
     toast('Exporting…');
     try {
-      const canvas = await renderExportCanvas(longSide);
+      const canvas = await renderExportCanvas(longSide, lightColours);
       if (!canvas) return toast('Nothing to export — the plan is empty or all layers are hidden.');
       const blob = format === 'pdf' ? await canvasToPdf(canvas) : await new Promise(res => canvas.toBlob(res, 'image/png'));
       if (!blob) throw new Error('the image is too large for this browser — try a lower resolution');
@@ -1990,7 +2078,7 @@
     $('#exportDlg').showModal();
   };
   $('#exportDlg').addEventListener('close', () => {
-    if ($('#exportDlg').returnValue === 'ok') exportPlan($('#exportFormat').value, Number($('#exportSize').value));
+    if ($('#exportDlg').returnValue === 'ok') exportPlan($('#exportFormat').value, Number($('#exportSize').value), $('#exportColours').value === 'light');
   });
 
   // ---------- Calculator ----------
@@ -2058,6 +2146,8 @@
       update();
     });
   })();
+
+  systemDark.addEventListener('change', () => { applyAppearance(); renderAll(); });
 
   // ---------- Start ----------
 
