@@ -792,10 +792,9 @@
       `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
   }
 
-  function render() {
-    const box = svg.getBoundingClientRect();
-    const h = [gridSvg(box.width, box.height)];
-
+  // Everything that belongs to the plan itself (no grid, handles or previews); also what gets exported.
+  function layersSvg() {
+    const h = [];
     // Layers are drawn bottom to top; hidden ones are skipped.
     for (const layer of doc.layers) {
       if (!layer.visible) continue;
@@ -811,6 +810,14 @@
         for (const o of doc.objects) if (o.layer === layer.id) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
       }
     }
+    return h.join('');
+  }
+
+  function render() {
+    const box = svg.getBoundingClientRect();
+    const h = [gridSvg(box.width, box.height)];
+
+    h.push(layersSvg());
 
     if (sel && sel.kind === 'edge') {
       const seg = walls.segments.find(s => s.key === sel.key);
@@ -1741,6 +1748,167 @@
       original();
     };
   }
+
+  // ---------- Export (PNG / PDF) ----------
+  // The plan is rebuilt as a standalone SVG, drawn onto a large canvas and saved as PNG,
+  // or wrapped as a single lossless image page in a PDF written by hand (no libraries).
+
+  const EXPORT_MARGIN = 24;   // px of white around the plan, in screen units
+
+  // Google fonts must travel inside the SVG: an SVG drawn as an image cannot load anything external.
+  async function embeddedFontCss(body) {
+    const used = new Set();
+    const keys = [doc.settings.dimFont, doc.settings.objFont].concat(doc.layers.map(l => l.settings && l.settings.objFont));
+    for (const k of keys) if (k && k.startsWith('g:')) used.add(k.slice(2));
+    if (!used.size) return '';
+    const chars = Array.from(new Set(body.replace(/<[^>]*>/g, ''))).map(c => c.codePointAt(0));
+    const inRange = block => {
+      const m = /unicode-range:([^;}]+)/.exec(block);
+      if (!m) return true;
+      return m[1].split(',').some(part => {
+        const r = /U\+([0-9A-Fa-f?]+)(?:-([0-9A-Fa-f]+))?/.exec(part);
+        if (!r || r[1].includes('?')) return true;
+        const lo = parseInt(r[1], 16), hi = r[2] ? parseInt(r[2], 16) : lo;
+        return chars.some(c => c >= lo && c <= hi);
+      });
+    };
+    const toDataUrl = blob => new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(fr.error);
+      fr.readAsDataURL(blob);
+    });
+    let css = '';
+    for (const name of used) {
+      for (const weight of ['', ':wght@700']) {
+        try {
+          const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name).replace(/%20/g, '+')}${weight}&display=swap`;
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          for (const block of (await res.text()).match(/@font-face\s*{[^}]*}/g) || []) {
+            if (!inRange(block)) continue;
+            const src = /url\(([^)]+)\)/.exec(block);
+            if (!src) continue;
+            const data = await toDataUrl(await (await fetch(src[1].replace(/["']/g, ''))).blob());
+            css += block.replace(src[0], `url(${data})`);
+          }
+        } catch (err) { /* offline or blocked: that weight falls back to a default font */ }
+      }
+    }
+    return css;
+  }
+
+  async function buildExportSvg() {
+    const keep = sel;
+    sel = null;                 // no selection highlight or handles in the export
+    let body;
+    try { body = layersSvg(); } finally { sel = keep; }
+    // Measure the drawing in a hidden SVG so labels and dimension lines are included in the frame.
+    const probe = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    probe.setAttribute('style', 'position:absolute;left:-99999px;top:0;width:10px;height:10px;overflow:hidden');
+    probe.innerHTML = `<g>${body}</g>`;
+    document.body.appendChild(probe);
+    const bb = probe.firstChild.getBBox();
+    probe.remove();
+    if (!bb.width || !bb.height) return null;
+    const x = bb.x - EXPORT_MARGIN, y = bb.y - EXPORT_MARGIN, w = bb.width + 2 * EXPORT_MARGIN, hgt = bb.height + 2 * EXPORT_MARGIN;
+    const fonts = await embeddedFontCss(body);
+    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hgt}" viewBox="${x} ${y} ${w} ${hgt}">` +
+      `<style>${fonts}</style><rect x="${x}" y="${y}" width="${w}" height="${hgt}" fill="#fff"/>${body}</svg>`;
+    return { svgText, w, h: hgt };
+  }
+
+  async function renderExportCanvas(longSide) {
+    const built = await buildExportSvg();
+    if (!built) return null;
+    const k = longSide / Math.max(built.w, built.h);
+    const url = URL.createObjectURL(new Blob([built.svgText], { type: 'image/svg+xml' }));
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(built.w * k);
+      canvas.height = Math.round(built.h * k);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // Pixels as zlib-compressed RGB, fed in strips so a large canvas never needs one huge buffer.
+  async function canvasToFlateRgb(canvas) {
+    const cs = new CompressionStream('deflate'), writer = cs.writable.getWriter();
+    const result = new Response(cs.readable).arrayBuffer();
+    const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height, STRIP = 256;
+    for (let y = 0; y < H; y += STRIP) {
+      const rows = Math.min(STRIP, H - y), src = ctx.getImageData(0, y, W, rows).data, rgb = new Uint8Array(W * rows * 3);
+      for (let i = 0, j = 0; i < src.length; i += 4) { rgb[j++] = src[i]; rgb[j++] = src[i + 1]; rgb[j++] = src[i + 2]; }
+      await writer.write(rgb);
+    }
+    await writer.close();
+    return new Uint8Array(await result);
+  }
+
+  // One page holding the image at 300 dpi.
+  async function canvasToPdf(canvas) {
+    const data = await canvasToFlateRgb(canvas);
+    const W = canvas.width, H = canvas.height, pw = (W * 72 / 300).toFixed(2), ph = (H * 72 / 300).toFixed(2);
+    const enc = new TextEncoder(), parts = [], offsets = [];
+    let length = 0;
+    const push = chunk => { const bytes = typeof chunk === 'string' ? enc.encode(chunk) : chunk; parts.push(bytes); length += bytes.length; };
+    const obj = (n, body) => { offsets[n] = length; push(`${n} 0 obj\n`); body(); push('\nendobj\n'); };
+    const content = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+    push('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
+    obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
+    obj(2, () => push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'));
+    obj(3, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`));
+    obj(4, () => push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
+    obj(5, () => {
+      push(`<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${data.length} >>\nstream\n`);
+      push(data);
+      push('\nendstream');
+    });
+    const xref = length;
+    push('xref\n0 6\n0000000000 65535 f \n' + [1, 2, 3, 4, 5].map(n => String(offsets[n]).padStart(10, '0') + ' 00000 n \n').join(''));
+    push(`trailer\n<< /Size 6 /Root 1 0 R /Info << /Producer (${APP.name} ${APP.version}) >> >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new Blob(parts, { type: 'application/pdf' });
+  }
+
+  function downloadBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+
+  async function exportPlan(format, longSide) {
+    toast('Exporting…');
+    try {
+      const canvas = await renderExportCanvas(longSide);
+      if (!canvas) return toast('Nothing to export — the plan is empty or all layers are hidden.');
+      const blob = format === 'pdf' ? await canvasToPdf(canvas) : await new Promise(res => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('the image is too large for this browser — try a lower resolution');
+      const base = (fileName || 'floorplan.json').replace(/\.json$/i, '');
+      downloadBlob(blob, `${base}.${format}`);
+      toast(`Exported ${base}.${format} (${canvas.width} × ${canvas.height} px)`);
+    } catch (err) {
+      toast('Export failed: ' + err.message);
+    }
+  }
+
+  $('#btnExport').onclick = () => {
+    $('#exportDlg').returnValue = '';   // so Esc after an earlier export does not export again
+    $('#exportDlg').showModal();
+  };
+  $('#exportDlg').addEventListener('close', () => {
+    if ($('#exportDlg').returnValue === 'ok') exportPlan($('#exportFormat').value, Number($('#exportSize').value));
+  });
 
   // ---------- Calculator ----------
 

@@ -160,6 +160,8 @@
     dialog::backdrop { background: rgba(0, 0, 0, .3); }
     dialog h3 { margin: 0 0 12px; }
     dialog label { display: grid; gap: 4px; }
+    dialog label + label { margin-top: 10px; }
+    dialog .hint { max-width: 340px; margin: 12px 0 0; color: var(--muted); }
     dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 14px 0 0; }
     .err { color: var(--err); min-height: 1.4em; margin: 6px 0 0; }
 
@@ -193,6 +195,7 @@
     <button id="btnNew">New plan</button>
     <span id="saveStatus"></span>
     <span class="spacer"></span>
+    <button id="btnExport" title="Export the plan as a PNG image or a PDF">Export</button>
     <button id="btnSettings" title="Colours and dimension style of this plan">Settings</button>
     <button id="btnUndo" title="Undo (⌘Z)">Undo</button>
     <button id="btnRedo" title="Redo (⇧⌘Z)">Redo</button>
@@ -235,6 +238,30 @@
     <span id="coords"></span>
     <span id="hint"></span>
   </footer>
+
+  <dialog id="exportDlg">
+    <form method="dialog">
+      <h3>Export plan</h3>
+      <label>Format
+        <select id="exportFormat">
+          <option value="png">PNG image</option>
+          <option value="pdf">PDF document</option>
+        </select>
+      </label>
+      <label>Resolution
+        <select id="exportSize">
+          <option value="3000">Standard — 3000 px on the long side</option>
+          <option value="6000" selected>High — 6000 px</option>
+          <option value="10000">Very high — 10000 px</option>
+        </select>
+      </label>
+      <p class="hint">The whole plan is exported without the grid. Text and line sizes relative to the walls are the same as on screen at the current zoom. Hidden layers are left out.</p>
+      <menu>
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button id="exportOk" value="ok" class="primary">Export</button>
+      </menu>
+    </form>
+  </dialog>
 
   <dialog id="newDlg">
     <form method="dialog">
