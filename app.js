@@ -160,11 +160,11 @@
   const PALETTES = {
     light: {
       ui: { bg: '#f3f4f6', surface: '#ffffff', border: '#d5d8dd', text: '#1f2328', muted: '#6b7280', accent: '#1a73e8', 'on-accent': '#ffffff', hover: '#eef1f5', active: '#e3eefd', off: '#b6bcc5', warn: '#b45309', err: '#c62828', ok: '#2e7d32', font: SANS },
-      canvas: { paper: '#ffffff', gridMinor: '#eef0f3', gridMajor: '#d9dde3', ink: '#2b2b2b', accent: '#1a73e8', jamb: '#9aa0a6', wall: '#4d4d4d', dim: '#5f6b7a', dimText: '#5f6b7a', objText: '#5f6b7a', objFill: '#ffffff', objBorder: '#2b2b2b' },
+      canvas: { paper: '#ffffff', gridMinor: '#eef0f3', gridMajor: '#d9dde3', ink: '#2b2b2b', accent: '#1a73e8', jamb: '#9aa0a6', wall: '#4d4d4d', dim: '#5f6b7a', dimText: '#5f6b7a', objText: '#5f6b7a', objFill: '#ffffff', objBorder: '#2b2b2b', note: '#fff3a3' },
     },
     dark: {
       ui: { bg: '#16181c', surface: '#1f2227', border: '#363b44', text: '#e6e8eb', muted: '#9aa3af', accent: '#5aa2ff', 'on-accent': '#0b1220', hover: '#2a2e35', active: '#253a5a', off: '#5b626d', warn: '#f0a35a', err: '#ff7b72', ok: '#6fcf7c', font: SANS },
-      canvas: { paper: '#1b1d21', gridMinor: '#23262b', gridMajor: '#30343b', ink: '#d7dae0', accent: '#5aa2ff', jamb: '#6b7280', wall: '#b9bec7', dim: '#9aa3af', dimText: '#c3c9d2', objText: '#c3c9d2', objFill: '#262a30', objBorder: '#d7dae0' },
+      canvas: { paper: '#1b1d21', gridMinor: '#23262b', gridMajor: '#30343b', ink: '#d7dae0', accent: '#5aa2ff', jamb: '#6b7280', wall: '#b9bec7', dim: '#9aa3af', dimText: '#c3c9d2', objText: '#c3c9d2', objFill: '#262a30', objBorder: '#d7dae0', note: '#6a5d1c' },
     },
   };
   const THEME_COLOURS = { wallColor: 'wall', dimColor: 'dim', dimFontColor: 'dimText', objFontColor: 'objText', objFillColor: 'objFill', objBorderColor: 'objBorder', titleFontColor: 'ink' };
@@ -385,7 +385,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], comments: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
   }
 
   function normalizeDoc(d) {
@@ -447,7 +447,13 @@
       if (Number.isFinite(src.real) && src.real > 0) r.real = src.real;
       return r;
     });
-    const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses, out.rulers).map(o => +o.id || 0)
+    out.comments = (d.comments || []).filter(c => [c.x, c.y, c.w, c.h].every(Number.isFinite) && c.w > 0 && c.h > 0).map(src => {
+      const c = { id: src.id, text: typeof src.text === 'string' ? src.text : '', x: src.x, y: src.y, w: src.w, h: src.h, rot: Number.isFinite(src.rot) ? src.rot : 0,
+        layer: out.layers.some(l => l.id === src.layer) ? src.layer : out.layers[out.layers.length - 1].id };
+      if (pairSet(toPair(src.color))) c.color = toPair(src.color);
+      return c;
+    });
+    const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses, out.rulers, out.comments).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
@@ -477,6 +483,7 @@
   let polyDraft = [];           // corners clicked so far with the polygon tool (world points)
   let polyHover = null;         // pointer position while drawing a polygon
   let vertexSel = null;         // { id, index }: the polygon corner picked for deletion
+  let panelFocus = null;        // selector of a field to focus once the panel has been redrawn
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
   let ghost = null;     // opening preview while a door/window tool is active
   let snap = 10;
@@ -493,6 +500,7 @@
     if (!sel) return null;
     if (sel.kind === 'object') { const o = doc.objects.find(x => x.id === sel.id); return o ? objLayer(o) : null; }
     if (sel.kind === 'title') { const t = doc.titles.find(x => x.id === sel.id); return t ? layerById(t.layer) : null; }
+    if (sel.kind === 'comment') { const c = doc.comments.find(x => x.id === sel.id); return c ? layerById(c.layer) : null; }
     return specialLayer(['dim', 'mark', 'compass', 'ruler'].includes(sel.kind) ? 'dimensions' : 'walls');
   }
   const selLocked = () => { const layer = selLayer(); return !!layer && layer.frozen; };
@@ -516,7 +524,7 @@
     const a = layerById(activeLayer);
     return a && a.kind === 'objects' ? a : doc.layers.slice().reverse().find(l => l.kind === 'objects');
   }
-  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length && !doc.titles.length && !doc.compasses.length && !doc.rulers.length;
+  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length && !doc.titles.length && !doc.compasses.length && !doc.rulers.length && !doc.comments.length;
 
   function resetHistory() {
     history = [JSON.stringify(doc)];
@@ -602,6 +610,7 @@
       return { x: o.x - d / 2, y: o.y - d / 2, w: d, h: d };
     }), doc.marks.map(m => ({ x: m.x - 300, y: m.y - 150, w: 600, h: 300 })),
       doc.titles.map(t => ({ x: t.x - 500, y: t.y - 200, w: 1000, h: 400 })),
+      doc.comments.map(c => ({ x: c.x - c.w / 2, y: c.y - c.h / 2, w: c.w, h: c.h })),
       doc.compasses.map(c => ({ x: c.x - c.size / 2, y: c.y - c.size / 2, w: c.size, h: c.size })),
       doc.rulers.map(r => ({ x: Math.min(r.x1, r.x2), y: Math.min(r.y1, r.y2), w: Math.abs(r.x2 - r.x1) || 1, h: Math.abs(r.y2 - r.y1) || 1 })));
     if (!boxes.length || !r.width) {
@@ -808,6 +817,68 @@
       if (t.layer !== layerId) continue;
       const b = titleBox(t);
       if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return t;
+    }
+    return null;
+  }
+
+  // ---------- Comment notes ----------
+  // A sticky-note with wrapped text, on any layer. Moves, resizes and rotates like a rectangular object.
+
+  function commentLines(text, maxChars, maxLines) {
+    if (maxChars < 1 || maxLines < 1) return [];   // note too small on screen for any text
+    const lines = [];
+    for (const para of text.split('\n')) {
+      let cur = '';
+      for (let word of para.split(/\s+/)) {
+        while (word.length > maxChars) {            // a word longer than the note is cut across lines
+          if (cur) { lines.push(cur); cur = ''; }
+          lines.push(word.slice(0, maxChars));
+          word = word.slice(maxChars);
+        }
+        if (!cur) cur = word;
+        else if ((cur + ' ' + word).length <= maxChars) cur += ' ' + word;
+        else { lines.push(cur); cur = word; }
+      }
+      lines.push(cur);
+    }
+    if (lines.length <= maxLines) return lines;
+    const shown = lines.slice(0, Math.max(maxLines, 0));
+    if (shown.length) shown[shown.length - 1] = shown[shown.length - 1].slice(0, Math.max(maxChars - 1, 0)) + '…';
+    return shown;
+  }
+
+  function commentSvg(c, selected, preview) {
+    const [cx, cy] = S(c.x, c.y), pw = c.w * view.scale, ph = c.h * view.scale, x0 = -pw / 2, y0 = -ph / 2, x1 = pw / 2, y1 = ph / 2;
+    const fill = colourFrom([c.color], 'note', palMode), fold = Math.min(pw, ph) * 0.2 > 16 ? 16 : Math.min(pw, ph) * 0.2;
+    // Dark text on a light note and the other way round.
+    const [r, g2, b] = [1, 3, 5].map(i => parseInt(fill.slice(i, i + 2), 16));
+    const ink = (0.299 * r + 0.587 * g2 + 0.114 * b) / 255 > 0.55 ? '#1f2328' : '#f3f4f6';
+    const sheet = poly([[x0, y0], [x1, y0], [x1, y1 - fold], [x1 - fold, y1], [x0, y1]]);
+    let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${c.rot})">` +
+      `<path d="${sheet}" transform="translate(2 3)" fill="#000" fill-opacity=".16"/>` +
+      `<path d="${sheet}" fill="${fill}" stroke="${selected || preview ? ACCENT : 'none'}" stroke-width="${selected ? 2 : 1}"${preview ? ' stroke-dasharray="5 3"' : ''}/>` +
+      `<path d="${poly([[x1, y1 - fold], [x1 - fold, y1 - fold], [x1 - fold, y1]])}" fill="#000" fill-opacity=".18"/>`;
+    const size = doc.settings.objFontSize + 1, pad = 7, lineH = size * 1.3;
+    const lines = commentLines(c.text || '', Math.floor((pw - 2 * pad) / (size * 0.56)), Math.floor((ph - 2 * pad) / lineH));
+    lines.forEach((t, i) => {
+      if (t) g += `<text x="${f(x0 + pad)}" y="${f(y0 + pad + lineH * (i + 0.5))}" style="font-family:${fontCss(doc.settings.objFont)};font-size:${size}px" dominant-baseline="central" fill="${ink}">${esc(t)}</text>`;
+    });
+    g += '</g>';
+    if (selected && !(layerById(c.layer) || {}).frozen) {
+      const hs = objectHandles(c), rot = hs[hs.length - 1], top = hs.find(x => x.id === 'n');
+      g += line(top.p, rot.p, `stroke="${ACCENT}" stroke-width="1"`);
+      for (const hp of hs) {
+        g += hp.id === 'rot' ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`
+          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
+      }
+    }
+    return g;
+  }
+
+  function hitComment(w, layerId) {
+    for (let i = doc.comments.length - 1; i >= 0; i--) {
+      const c = doc.comments[i], l = objToLocal(c, w);
+      if (c.layer === layerId && Math.abs(l.x) <= c.w / 2 && Math.abs(l.y) <= c.h / 2) return c;
     }
     return null;
   }
@@ -1251,6 +1322,7 @@
       } else {
         for (const o of doc.objects) if (o.layer === layer.id) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
       }
+      for (const c of doc.comments) if (c.layer === layer.id) h.push(commentSvg(c, !!sel && sel.kind === 'comment' && sel.id === c.id));
       for (const t of doc.titles) if (t.layer === layer.id) h.push(titleSvg(t, !!sel && sel.kind === 'title' && sel.id === t.id));
     }
     return h.join('');
@@ -1275,6 +1347,10 @@
       }
     }
 
+    if (drag && drag.kind === 'newcomment') {
+      const r = dragRect(drag);
+      if (r.w > 0 && r.h > 0) h.push(commentSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, text: '' }, false, true));
+    }
     if (drag && drag.kind === 'newruler') h.push(rulerSvg({ x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y, round: 0 }, false, true));
     if (drag && drag.kind === 'newobject') {
       const r = dragRect(drag);
@@ -1312,6 +1388,7 @@
     if (sel.kind === 'object') return doc.objects.find(o => o.id === sel.id) || null;
     if (sel.kind === 'mark') return doc.marks.find(m => m.id === sel.id) || null;
     if (sel.kind === 'title') return doc.titles.find(t => t.id === sel.id) || null;
+    if (sel.kind === 'comment') return doc.comments.find(c => c.id === sel.id) || null;
     if (sel.kind === 'compass') return doc.compasses.find(c => c.id === sel.id) || null;
     if (sel.kind === 'ruler') return doc.rulers.find(r => r.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
@@ -1435,7 +1512,7 @@
       // Objects are kept: they move to the nearest object layer below, or above if there is none.
       const below = doc.layers.slice(0, i).reverse().find(l => l.kind === 'objects');
       const home = below || others[0];
-      for (const o of doc.objects.concat(doc.titles)) if (o.layer === layer.id) o.layer = home.id;
+      for (const o of doc.objects.concat(doc.titles, doc.comments)) if (o.layer === layer.id) o.layer = home.id;
       doc.layers.splice(i, 1);
       activeLayer = home.id;
     }
@@ -1450,8 +1527,8 @@
   function controlKey(el) {
     const side = el.dataset.side ? `[data-side="${el.dataset.side}"]` : '';
     if (el.dataset.measure) return `[data-measure="${el.dataset.measure}"][data-mside="${el.dataset.mside}"]`;
-    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag', 'tcol']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
-    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer', 'rround', 'rreal']) if (k in el.dataset) return `[data-${k}]`;
+    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag', 'tcol', 'ccol']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
+    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer', 'rround', 'rreal', 'ctext', 'clayer']) if (k in el.dataset) return `[data-${k}]`;
     return null;
   }
 
@@ -1496,6 +1573,8 @@
         '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
       h = `<h3>New ${TITLES[tool].toLowerCase()}</h3>${openingFields(tool, defaults[tool])}<p>Click on a wall to place it. The side of the wall you click on sets the ${tool === 'window' ? 'sill side' : 'opening direction'}.</p>`;
+    } else if (tool === 'comment') {
+      h = `<h3>New comment note</h3><p>Drag to draw the note, or click to drop a standard one. It goes on the highlighted layer: “${esc(titleTargetLayer().name)}”.</p>`;
     } else if (tool === 'title') {
       h = `<h3>New title</h3><p>Click on the plan to place a title. It goes on the highlighted layer: “${esc(titleTargetLayer().name)}”.</p>`;
     } else if (tool === 'compass') {
@@ -1513,6 +1592,15 @@
       h = '<h3>Object</h3><p>Drag to draw a rectangle, or click to drop a standard one. Use it for furniture, appliances and the like.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'wall') {
       h = '<h3>Wall</h3><p>Drag to draw a rectangle. Rectangles that touch or overlap merge into one wall.</p><p>Hold Alt to draw without snapping.</p>';
+    } else if (sel && sel.kind === 'comment') {
+      h = '<h3>Comment note</h3>' +
+        `<label class="note">Text<textarea data-ctext rows="5" placeholder="Write the comment here">${esc(obj.text)}</textarea></label>` +
+        colourRow('Colour', 'data-ccol', 'color', obj.color, [obj.color], 'note') +
+        `<label class="field">Layer<select data-clayer>${doc.layers.slice().reverse().map(l => `<option value="${esc(l.id)}"${l.id === obj.layer ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` +
+        field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
+        `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
+        '<p>Drag to move, drag the squares to resize and the round handle to rotate. Text that does not fit is cut off with “…”.</p>' +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'title') {
       const inherited = Object.assign({}, doc.settings, (layerById(obj.layer) || {}).settings);
       const fontName = (fontChoices().find(([k]) => k === inherited.titleFont) || ['', 'System'])[1];
@@ -1624,6 +1712,10 @@
     const locked = selLocked() && tool === 'select';
     panel.innerHTML = locked ? `<p class="locked">🔒 ${esc(lockedNote())}</p>` + h : h;
     if (locked) for (const el of panel.querySelectorAll('input, select, textarea, button')) el.disabled = true;
+    // A field asked for by name (the text of something just placed) gets the focus, ready to type over.
+    const wanted = panelFocus && panel.querySelector(panelFocus);
+    panelFocus = null;
+    if (wanted) { wanted.focus(); wanted.select(); return; }
     const again = key && panel.querySelector(key);
     if (again) {
       again.focus();
@@ -1689,11 +1781,17 @@
       if (text || sel.kind === 'object') target.description = text; else delete target.description;
       return 'doc';
     }
-    if ('rot' in ds && sel && (sel.kind === 'object' || sel.kind === 'compass')) {
+    if ('rot' in ds && sel && ['object', 'compass', 'comment'].includes(sel.kind)) {
       const turned = selectedObject();
       if (!turned) return null;
       turned.rot = normAngle(Number(el.value) || 0);
       return 'doc';
+    }
+    const comment = sel && sel.kind === 'comment' ? selectedObject() : null;
+    if (comment) {
+      if ('ctext' in ds) { comment.text = live ? el.value : el.value.trim(); return 'doc'; }
+      if ('clayer' in ds) { comment.layer = el.value; return 'doc'; }
+      if (ds.ccol) { comment.color = withSide(comment.color, el); return 'doc'; }
     }
     const ruler = sel && sel.kind === 'ruler' ? selectedObject() : null;
     if (ruler && 'rround' in ds) { ruler.round = Number(el.value) || 0; return 'doc'; }
@@ -1840,6 +1938,7 @@
     else if (sel.kind === 'object') doc.objects = doc.objects.filter(o => o.id !== sel.id);
     else if (sel.kind === 'mark') doc.marks = doc.marks.filter(m => m.id !== sel.id);
     else if (sel.kind === 'title') doc.titles = doc.titles.filter(t => t.id !== sel.id);
+    else if (sel.kind === 'comment') doc.comments = doc.comments.filter(c => c.id !== sel.id);
     else if (sel.kind === 'compass') doc.compasses = doc.compasses.filter(c => c.id !== sel.id);
     else if (sel.kind === 'ruler') doc.rulers = doc.rulers.filter(r => r.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
@@ -1864,6 +1963,7 @@
     polygon: 'Click each corner · click the first corner, double-click or press Enter to finish · Esc to discard',
     mark: 'Click to place a ceiling height mark · Esc to finish',
     title: 'Click to place a title on the highlighted layer · Esc to cancel',
+    comment: 'Drag to draw a comment note, or click to drop one · Esc to cancel',
     compass: 'Click to place a compass rose · Esc to cancel',
     ruler: 'Drag from start to end to add a free dimension · Alt disables snapping · Esc to cancel',
     door: 'Click a wall to place a door · Esc to finish',
@@ -1913,7 +2013,7 @@
     } else if (sel.kind === 'ruler') {
       obj.x1 += dx; obj.x2 += dx; obj.y1 += dy; obj.y2 += dy;
       commit();
-    } else if (['object', 'mark', 'title', 'compass'].includes(sel.kind)) {
+    } else if (['object', 'mark', 'title', 'compass', 'comment'].includes(sel.kind)) {
       obj.x += dx; obj.y += dy;
       commit();
     } else if (sel.kind === 'opening') {
@@ -1955,12 +2055,17 @@
       svg.classList.add('panning');
       return;
     }
-    const toolLayer = tool in OBJECT_TOOLS ? targetLayer() : tool === 'title' ? titleTargetLayer()
+    const toolLayer = tool in OBJECT_TOOLS ? targetLayer() : tool === 'title' || tool === 'comment' ? titleTargetLayer()
       : ['mark', 'compass', 'ruler'].includes(tool) ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
     if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
       const a = snapPoint(w, e);
       drag = { kind: 'newwall', a, b: a };
+      return;
+    }
+    if (tool === 'comment') {
+      const a = { x: snapv(w.x, e), y: snapv(w.y, e) };
+      drag = { kind: 'newcomment', a, b: a };
       return;
     }
     if (tool === 'ruler') {
@@ -1975,6 +2080,7 @@
       const kind = tool;
       setTool('select');
       sel = { kind, id: made.id };
+      if (kind === 'title') panelFocus = '[data-ttext]';
       return commit();
     }
     if (tool === 'mark') {
@@ -2023,7 +2129,7 @@
         return;
       }
     }
-    if (sel && sel.kind === 'object' && !selLocked()) {
+    if (sel && (sel.kind === 'object' || sel.kind === 'comment') && !selLocked()) {
       const obj = selectedObject();
       const hp = obj && objectHandles(obj).find(h => h.id !== 'top' && Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
       if (hp && hp.id === 'rot') { drag = { kind: 'rotateobject', o: obj }; return; }
@@ -2049,7 +2155,13 @@
     for (const layer of doc.layers.slice().reverse()) {
       if (!layer.visible) continue;
       const free = !layer.frozen;
-      const title = hitTitle(p, layer.id);   // titles sit on top of everything else in their layer
+      const comment = hitComment(w, layer.id);   // notes and titles sit on top of everything else in their layer
+      if (comment && !hitTitle(p, layer.id)) {
+        sel = { kind: 'comment', id: comment.id };
+        if (free) drag = { kind: 'moveobject', o: comment, w0: w, orig: { x: comment.x, y: comment.y } };
+        return renderAll();
+      }
+      const title = hitTitle(p, layer.id);
       if (title) {
         sel = { kind: 'title', id: title.id };
         if (free) drag = { kind: 'moveobject', o: title, w0: w, orig: { x: title.x, y: title.y } };
@@ -2141,6 +2253,8 @@
       const step = e.altKey ? 1 : 15;
       const ang = Math.atan2(w.y - drag.o.y, w.x - drag.o.x) * 180 / Math.PI + 90;
       drag.o.rot = normAngle(Math.round(ang / step) * step);
+    } else if (drag.kind === 'newcomment') {
+      drag.b = { x: snapv(w.x, e), y: snapv(w.y, e) };
     } else if (drag.kind === 'newruler') {
       drag.b = snapPoint(w, e);
     } else if (drag.kind === 'rulerend') {
@@ -2205,6 +2319,20 @@
     drag = null;
     svg.classList.remove('panning');
     if (!d) return;
+    if (d.kind === 'newcomment') {
+      let r = dragRect(d);
+      if (!r.w || !r.h) {
+        // Plain click: a note about 150 px square at the current zoom, snapped to the grid.
+        const side = Math.max(Math.round(150 / view.scale / snap) * snap, snap);
+        r = { x: d.a.x, y: d.a.y, w: side, h: side };
+      }
+      const c = { id: doc.nextId++, text: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, layer: titleTargetLayer().id };
+      doc.comments.push(c);
+      setTool('select');
+      sel = { kind: 'comment', id: c.id };
+      panelFocus = '[data-ctext]';
+      return commit();
+    }
     if (d.kind === 'newruler') {
       if (d.a.x === d.b.x && d.a.y === d.b.y) return render();   // a click without a drag adds nothing
       const r = { id: doc.nextId++, x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y, round: 0 };
@@ -2274,11 +2402,11 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && ['wall', 'opening', 'object', 'mark', 'title', 'compass', 'ruler'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && ['wall', 'opening', 'object', 'mark', 'title', 'compass', 'ruler', 'comment'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', m: 'ruler', t: 'title', c: 'compass' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', m: 'ruler', t: 'title', p: 'comment', c: 'compass' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
