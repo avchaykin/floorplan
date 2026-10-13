@@ -339,6 +339,7 @@
   let activeLayer = null;     // id of the layer highlighted in the Layers list; new objects go to it
   let sel = null;       // {kind: 'wall'|'opening', id} | {kind: 'dim'|'edge', key}
   let drag = null;
+  let hiddenDimsOpen = false;   // whether the hidden-dimensions list in the side panel is unfolded
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
   let ghost = null;     // opening preview while a door/window tool is active
   let snap = 50;
@@ -1032,13 +1033,14 @@
       const hidden = allDims().filter(d => isHidden(d.key));
       h = '<h3>Floorplan</h3><p>Click a wall, door, window or dimension to edit it. Drag to move.</p>' +
         '<p>Click a dimension and press Delete to hide it.</p>' +
-        `<h3>Hidden dimensions${hidden.length ? ` (${hidden.length})` : ''}</h3>`;
+        `<details class="fold" data-fold="hiddenDims"${hiddenDimsOpen ? ' open' : ''}><summary>Hidden dimensions${hidden.length ? ` (${hidden.length})` : ''}</summary>`;
       if (!hidden.length) h += '<p>None.</p>';
       else {
         h += '<ul class="hidden-dims">' + hidden.map(d =>
           `<li data-dim="${d.key}"><span>${d.nx ? '↕' : '↔'} ${dimText(d)} ${doc.units}</span><button data-act="showDim">Show</button></li>`).join('') +
           '</ul><p>Point at a row to see where it is on the plan.</p>';
       }
+      h += '</details>';
     }
     panel.innerHTML = h;
   }
@@ -1129,6 +1131,8 @@
     setPreviewDim(row ? row.dataset.dim : null);
   });
   panel.addEventListener('mouseleave', () => setPreviewDim(null));
+  // toggle does not bubble, so it is caught on the way down; the state survives panel redraws
+  panel.addEventListener('toggle', e => { if (e.target.dataset.fold === 'hiddenDims') hiddenDimsOpen = e.target.open; }, true);
 
   panel.addEventListener('keydown', e => {
     if (e.key === 'Enter' && 'gfont' in e.target.dataset) { e.preventDefault(); addGoogleFont(e.target.value); }
