@@ -188,7 +188,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings() };
   }
 
   function normalizeDoc(d) {
@@ -200,7 +200,9 @@
     out.openings = (d.openings || []).filter(o => OPENING_TOOLS.includes(o.type) && Number.isFinite(o.x) && Number.isFinite(o.y));
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
     for (const [k, v] of Object.entries(d.realDimensions || {})) if (Number.isFinite(v) && v > 0) out.realDimensions[k] = v;
-    const ids = out.walls.concat(out.openings).map(o => +o.id || 0);
+    out.objects = (d.objects || []).filter(o => [o.x, o.y, o.w, o.h].every(Number.isFinite) && o.w > 0 && o.h > 0)
+      .map(o => ({ id: o.id, name: typeof o.name === 'string' ? o.name : '', x: o.x, y: o.y, w: o.w, h: o.h, rot: Number.isFinite(o.rot) ? o.rot : 0 }));
+    const ids = out.walls.concat(out.openings, out.objects).map(o => +o.id || 0);
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
   }
@@ -230,7 +232,7 @@
 
   const rebuild = () => { walls = Geo.buildWalls(doc.walls); };
   const freshDoc = () => Object.assign(newDoc(), { units: doc.units, settings: Object.assign({}, doc.settings) });
-  const isEmpty = () => !doc.walls.length && !doc.openings.length;
+  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length;
 
   function resetHistory() {
     history = [JSON.stringify(doc)];
@@ -309,12 +311,16 @@
 
   function fitView() {
     const r = svg.getBoundingClientRect();
-    if (!doc.walls.length || !r.width) {
+    const boxes = doc.walls.concat(doc.objects.map(o => {
+      const d = Math.hypot(o.w, o.h);    // covers the object at any rotation
+      return { x: o.x - d / 2, y: o.y - d / 2, w: d, h: d };
+    }));
+    if (!boxes.length || !r.width) {
       view.scale = 0.08; view.ox = 80; view.oy = 80;
       return;
     }
-    const x0 = Math.min(...doc.walls.map(w => w.x)), x1 = Math.max(...doc.walls.map(w => w.x + w.w));
-    const y0 = Math.min(...doc.walls.map(w => w.y)), y1 = Math.max(...doc.walls.map(w => w.y + w.h));
+    const x0 = Math.min(...boxes.map(w => w.x)), x1 = Math.max(...boxes.map(w => w.x + w.w));
+    const y0 = Math.min(...boxes.map(w => w.y)), y1 = Math.max(...boxes.map(w => w.y + w.h));
     const pad = 90;
     view.scale = clamp(Math.min((r.width - 2 * pad) / (x1 - x0), (r.height - 2 * pad) / (y1 - y0)), 0.01, 0.5);
     view.ox = (r.width - (x1 - x0) * view.scale) / 2 - x0 * view.scale;
@@ -366,6 +372,64 @@
       if (Math.abs(a) <= openingWidth(o) / 2 && Math.abs(b) <= r.t / 2 + 4 / view.scale) return o;
     }
     return null;
+  }
+
+  // ---------- Objects ----------
+  // Free rectangles (furniture, appliances, ...) stored by centre, size and rotation. They ignore walls.
+
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function objToWorld(o, lx, ly) {
+    const a = o.rot * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a);
+    return [o.x + lx * c - ly * sn, o.y + lx * sn + ly * c];
+  }
+
+  function objToLocal(o, w) {
+    const a = o.rot * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), dx = w.x - o.x, dy = w.y - o.y;
+    return { x: dx * c + dy * sn, y: -dx * sn + dy * c };
+  }
+
+  // Resize handles on the outline plus one rotation handle above the top edge.
+  function objectHandles(o) {
+    const at = (lx, ly) => S(...objToWorld(o, lx, ly));
+    const list = HANDLES.map(([id, fx, fy]) => ({ id, fx, fy, p: at((fx - .5) * o.w, (fy - .5) * o.h) }));
+    list.push({ id: 'rot', p: at(0, -o.h / 2 - 24 / view.scale) });
+    return list;
+  }
+
+  function hitObject(w) {
+    for (let i = doc.objects.length - 1; i >= 0; i--) {
+      const o = doc.objects[i], l = objToLocal(o, w);
+      if (Math.abs(l.x) <= o.w / 2 && Math.abs(l.y) <= o.h / 2) return o;
+    }
+    return null;
+  }
+
+  function objectSvg(o, selected, preview) {
+    const st = doc.settings, [cx, cy] = S(o.x, o.y), pw = o.w * view.scale, ph = o.h * view.scale;
+    const stroke = selected || preview ? ACCENT : INK;
+    let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
+      `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="#fff" fill-opacity=".85" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
+    // Name and size, as many lines as fit; kept upright when the object is turned over.
+    const size = st.dimFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
+    const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * 0.6 + 6);
+    const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
+    const flip = o.rot > 90 && o.rot <= 270 ? ' transform="rotate(180)"' : '';
+    for (let i = 0; i < count; i++) {
+      const y = (i - (count - 1) / 2) * size * 1.25;
+      g += `<text x="0" y="${f(y)}" style="font-family:${FONTS[st.dimFont][1]};font-size:${size}px" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.dimFontColor}"${flip}>${esc(lines[i])}</text>`;
+    }
+    g += '</g>';
+    if (selected) {
+      const hs = objectHandles(o), rot = hs[hs.length - 1], top = hs.find(x => x.id === 'n');
+      g += line(top.p, rot.p, `stroke="${ACCENT}" stroke-width="1"`);
+      for (const hp of hs) {
+        g += hp.id === 'rot'
+          ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="#fff" stroke="${ACCENT}" stroke-width="1.5"/>`
+          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="#fff" stroke="${ACCENT}" stroke-width="1.5"/>`;
+      }
+    }
+    return g;
   }
 
   // ---------- Dimensions ----------
@@ -589,6 +653,7 @@
     }
 
     for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
+    for (const o of doc.objects) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
     for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
 
     if (sel && sel.kind === 'edge') {
@@ -604,6 +669,10 @@
       }
     }
 
+    if (drag && drag.kind === 'newobject') {
+      const r = dragRect(drag);
+      if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '' }, false, true));
+    }
     if (drag && drag.kind === 'newwall') {
       const r = dragRect(drag);
       const [x, y] = S(r.x, r.y);
@@ -628,6 +697,7 @@
     if (!sel) return null;
     if (sel.kind === 'wall') return doc.walls.find(w => w.id === sel.id) || null;
     if (sel.kind === 'opening') return doc.openings.find(o => o.id === sel.id) || null;
+    if (sel.kind === 'object') return doc.objects.find(o => o.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
     return walls.segments.find(s => s.key === sel.key) || null;
   }
@@ -663,8 +733,18 @@
         '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
       h = `<h3>New ${TITLES[tool].toLowerCase()}</h3>${openingFields(tool, defaults[tool])}<p>Click on a wall to place it. The side of the wall you click on sets the ${tool === 'window' ? 'sill side' : 'opening direction'}.</p>`;
+    } else if (tool === 'object') {
+      h = '<h3>Object</h3><p>Drag to draw a rectangle, or click to drop a standard one. Use it for furniture, appliances and the like.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'wall') {
       h = '<h3>Wall</h3><p>Drag to draw a rectangle. Rectangles that touch or overlap merge into one wall.</p><p>Hold Alt to draw without snapping.</p>';
+    } else if (sel && sel.kind === 'object') {
+      h = '<h3>Object</h3>' +
+        `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
+        field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
+        `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
+        '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
+        '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'wall') {
       h = '<h3>Wall rectangle</h3>' + field('X', 'x', obj.x) + field('Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
@@ -715,7 +795,15 @@
     render();
   });
 
+  const normAngle = a => ((Math.round(a) % 360) + 360) % 360;
+
   panel.addEventListener('change', e => {
+    if (sel && sel.kind === 'object' && ('name' in e.target.dataset || 'rot' in e.target.dataset)) {
+      const o = selectedObject();
+      if ('name' in e.target.dataset) o.name = e.target.value.trim();
+      else o.rot = normAngle(Number(e.target.value) || 0);
+      return commit();
+    }
     if (e.target.dataset.set) {
       applySetting(e.target);
       return commit();
@@ -766,6 +854,8 @@
     if (act === 'showWallDims' || act === 'hideWallDims') {
       setHidden(allDims().filter(d => d.comp === obj.comp).map(d => d.key), act === 'hideWallDims');
     }
+    if (act === 'rotateLeft') obj.rot = normAngle(obj.rot - 90);
+    if (act === 'rotateRight') obj.rot = normAngle(obj.rot + 90);
     if (act === 'resetSettings') doc.settings = defaultSettings();
     if (act === 'closeSettings') showSettings = false;
     if (act === 'clearReal') delete doc.realDimensions[sel.key];
@@ -779,6 +869,7 @@
   function deleteSelection() {
     if (!sel) return;
     if (sel.kind === 'wall') doc.walls = doc.walls.filter(w => w.id !== sel.id);
+    else if (sel.kind === 'object') doc.objects = doc.objects.filter(o => o.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
     else if (sel.kind === 'dim') {
       const dim = selectedObject();
@@ -796,6 +887,7 @@
   const HINTS = {
     select: 'Click to select · drag or arrow keys to move · drag empty space to pan · pinch or ⌘-scroll to zoom · Delete removes',
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
+    object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     door: 'Click a wall to place a door · Esc to finish',
     doorway: 'Click a wall to place a doorway · Esc to finish',
     window: 'Click a wall to place a window · Esc to finish',
@@ -835,6 +927,9 @@
       rebuild();
       remapHidden(dx, dy);
       commit();
+    } else if (sel.kind === 'object') {
+      obj.x += dx; obj.y += dy;
+      commit();
     } else if (sel.kind === 'opening') {
       const x = obj.x + (obj.axis === 'h' ? dx : 0), y = obj.y + (obj.axis === 'v' ? dy : 0);
       if ((x === obj.x && y === obj.y) || !walls.extent(x, y)) return;   // stay inside the wall
@@ -867,6 +962,11 @@
       drag = { kind: 'newwall', a, b: a };
       return;
     }
+    if (tool === 'object') {
+      const a = { x: snapv(w.x, e), y: snapv(w.y, e) };
+      drag = { kind: 'newobject', a, b: a };
+      return;
+    }
     if (OPENING_TOOLS.includes(tool)) {
       if (ghost) {
         const o = Object.assign({}, ghost, { id: doc.nextId++ });
@@ -885,6 +985,14 @@
         return;
       }
     }
+    if (sel && sel.kind === 'object') {
+      const obj = selectedObject();
+      const hp = obj && objectHandles(obj).find(h => Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
+      if (hp) {
+        drag = hp.id === 'rot' ? { kind: 'rotateobject', o: obj } : { kind: 'resizeobject', o: obj, sx: hp.fx * 2 - 1, sy: hp.fy * 2 - 1, orig: Object.assign({}, obj) };
+        return;
+      }
+    }
     const o = hitOpening(w);
     if (o) {
       sel = { kind: 'opening', id: o.id };
@@ -894,6 +1002,12 @@
     const dim = hitDim(p);
     if (dim) {
       sel = { kind: 'dim', key: dim.key };
+      return renderAll();
+    }
+    const thing = hitObject(w);
+    if (thing) {
+      sel = { kind: 'object', id: thing.id };
+      drag = { kind: 'moveobject', o: thing, w0: w, orig: { x: thing.x, y: thing.y } };
       return renderAll();
     }
     const edge = hitEdge(p);
@@ -929,6 +1043,31 @@
       view.oy = drag.oy + p.y - drag.p.y;
     } else if (drag.kind === 'newwall') {
       drag.b = snapPoint(w, e);
+    } else if (drag.kind === 'newobject') {
+      drag.b = { x: snapv(w.x, e), y: snapv(w.y, e) };
+    } else if (drag.kind === 'moveobject') {
+      drag.o.x = drag.orig.x + snapv(w.x - drag.w0.x, e);
+      drag.o.y = drag.orig.y + snapv(w.y - drag.w0.y, e);
+    } else if (drag.kind === 'rotateobject') {
+      const step = e.altKey ? 1 : 15;
+      const ang = Math.atan2(w.y - drag.o.y, w.x - drag.o.x) * 180 / Math.PI + 90;
+      drag.o.rot = normAngle(Math.round(ang / step) * step);
+    } else if (drag.kind === 'resizeobject') {
+      // The side opposite the dragged handle stays where it is, in the object's own rotated frame.
+      const o0 = drag.orig, l = objToLocal(o0, w);
+      let nw = o0.w, nh = o0.h, lcx = 0, lcy = 0;
+      if (drag.sx) {
+        const ax = -drag.sx * o0.w / 2;
+        nw = Math.max(10, snapv(drag.sx * (l.x - ax), e));
+        lcx = ax + drag.sx * nw / 2;
+      }
+      if (drag.sy) {
+        const ay = -drag.sy * o0.h / 2;
+        nh = Math.max(10, snapv(drag.sy * (l.y - ay), e));
+        lcy = ay + drag.sy * nh / 2;
+      }
+      const c = objToWorld(o0, lcx, lcy);
+      Object.assign(drag.o, { x: Math.round(c[0]), y: Math.round(c[1]), w: nw, h: nh });
     } else if (drag.kind === 'pending') {
       if (Math.hypot(p.x - drag.p.x, p.y - drag.p.y) < 4 || !drag.rect) return;
       startMoveWall(drag.rect, drag.w0);
@@ -962,6 +1101,15 @@
     drag = null;
     svg.classList.remove('panning');
     if (!d) return;
+    if (d.kind === 'newobject') {
+      let r = dragRect(d);
+      if (!r.w || !r.h) r = { x: d.a.x - 500, y: d.a.y - 300, w: 1000, h: 600 };   // plain click: standard size
+      const o = { id: doc.nextId++, name: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0 };
+      doc.objects.push(o);
+      setTool('select');
+      sel = { kind: 'object', id: o.id };
+      return commit();
+    }
     if (d.kind === 'newwall') {
       const r = dragRect(d);
       if (r.w > 0 && r.h > 0) doc.walls.push(Object.assign({ id: doc.nextId++ }, r));
@@ -971,7 +1119,7 @@
       if (d.dx || d.dy) remapHidden(d.dx, d.dy);
       return commit();
     }
-    if (d.kind === 'resize' || d.kind === 'moveopening') return commit();
+    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject'].includes(d.kind)) return commit();
     render();
   }
   svg.addEventListener('pointerup', endDrag);
@@ -1004,11 +1152,11 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && (sel.kind === 'wall' || sel.kind === 'opening')) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && ['wall', 'opening', 'object'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
