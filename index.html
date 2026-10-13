@@ -115,7 +115,16 @@
     .layer-list .lname { flex: 1; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .layer-list .lkind { color: var(--muted); font-size: 11px; }
     .layer-list li.hidden-layer .lname { color: var(--muted); text-decoration: line-through; }
-    #panel label.field em { font-style: normal; }
+    #panel .field em { font-style: normal; }
+    #panel .field.pair { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; margin-bottom: 6px; }
+    #panel .sides { display: flex; gap: 4px; }
+    #panel .side { display: flex; align-items: center; gap: 2px; padding: 1px 0 1px 2px; border: 1px solid transparent; border-radius: 6px; }
+    #panel .side.now { border-color: var(--border); background: var(--hover); }
+    #panel .side i { width: 12px; font-style: normal; font-size: 11px; text-align: center; color: var(--muted); }
+    #panel .side input[type=color] { width: 30px; height: 22px; padding: 1px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+    #panel .side.auto input[type=color] { border-style: dashed; opacity: .7; }
+    #panel .side button { padding: 0 3px; border: none; background: none; color: var(--accent); }
+    #panel .side button:disabled { visibility: hidden; }
     #panel label.field b.ovr { color: var(--accent); font-size: 9px; vertical-align: 1px; }
     #calc { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
     #calcInput { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }

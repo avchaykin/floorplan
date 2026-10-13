@@ -204,9 +204,10 @@
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
   const currentMode = () => appearance.mode === 'system' ? (systemDark.matches ? 'dark' : 'light') : appearance.mode;
 
-  let pal;
-  function setPalette(canvasColours) {
+  let pal, palMode;
+  function setPalette(canvasColours, mode) {
     pal = canvasColours;
+    palMode = mode;
     INK = pal.ink; ACCENT = pal.accent; PAPER = pal.paper; JAMB = pal.jamb;
   }
   function applyAppearance() {
@@ -214,7 +215,7 @@
     for (const [k, v] of Object.entries(variant.ui)) root.style.setProperty('--' + k, v);
     root.style.setProperty('--paper', variant.canvas.paper);
     root.style.colorScheme = mode;   // native controls (scrollbars, selects, colour pickers) follow
-    setPalette(variant.canvas);
+    setPalette(variant.canvas, mode);
   }
   applyAppearance();
   const DIM_OFFSET = 18;          // px between wall face and dimension line at 100% distance
@@ -309,6 +310,7 @@
         const given = l.settings && typeof l.settings === 'object' ? l.settings : {};
         const merged = cleanSettings(Object.assign({}, settings, given));
         for (const k of OBJ_SETTING_KEYS) if (k in given) layer.settings[k] = merged[k];
+        for (const k of COLOUR_KEYS) if (k in layer.settings && !pairSet(layer.settings[k])) delete layer.settings[k];
       }
       out.push(layer);
     }
@@ -323,22 +325,61 @@
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
-  }
-
-  // Plan colours still at their built-in default follow the theme; colours the user picked are kept as they are.
-  const BUILTIN_SETTINGS = defaultSettings();
-  function themed(settings) {
-    const out = Object.assign({}, settings);
-    for (const [key, slot] of Object.entries(THEME_COLOURS)) if (String(out[key]).toLowerCase() === BUILTIN_SETTINGS[key]) out[key] = pal[slot];
+    const out = { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
+    for (const k of Object.keys(THEME_COLOURS)) out[k] = { light: null, dark: null };   // colours: automatic, i.e. from the theme
     return out;
   }
-  const planStyle = () => themed(doc.settings);
+
+  // Every colour is a pair { light, dark }: one value per mode, null meaning "automatic".
+  // An automatic side mirrors the other side if that one is set; with both automatic the theme decides.
+  const COLOUR_KEYS = Object.keys(THEME_COLOURS);
+  const OLD_DEFAULT_COLOURS = { wallColor: '#4d4d4d', dimColor: '#5f6b7a', dimFontColor: '#5f6b7a', objFontColor: '#5f6b7a', objFillColor: '#ffffff', objBorderColor: '#2b2b2b' };
+  const autoPair = () => ({ light: null, dark: null });
+  const pairSet = p => !!p && !!(p.light || p.dark);
+
+  // Accepts a pair or a single colour from older plans (taken as the light-mode value).
+  function toPair(v, oldDefault) {
+    if (typeof v === 'string') return isColour(v) && v.toLowerCase() !== oldDefault ? { light: v.toLowerCase(), dark: null } : autoPair();
+    if (!v || typeof v !== 'object') return autoPair();
+    return { light: isColour(v.light) ? v.light.toLowerCase() : null, dark: isColour(v.dark) ? v.dark.toLowerCase() : null };
+  }
+
+  // The same hue with its lightness flipped, kept slightly off pure black and white.
+  function oppositeColour(hex) {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    let hue = 0, sat = 0;
+    if (d) {
+      sat = d / (1 - Math.abs(2 * l - 1));
+      hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      hue = ((hue % 6) + 6) % 6;
+    }
+    const l2 = 0.1 + 0.85 * (1 - l), c = (1 - Math.abs(2 * l2 - 1)) * sat, x = c * (1 - Math.abs(hue % 2 - 1)), m = l2 - c / 2;
+    const rgb = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(hue) % 6];
+    return '#' + rgb.map(v => Math.round(Math.min(Math.max(v + m, 0), 1) * 255).toString(16).padStart(2, '0')).join('');
+  }
+
+  const paletteFor = mode => mode === palMode ? pal : THEMES[appearance.theme][mode].canvas;
+  // Colour for one mode from a list of pairs, most specific first; falls back to the theme.
+  function colourFrom(pairs, slot, mode) {
+    for (const p of pairs) {
+      if (!p) continue;
+      if (p[mode]) return p[mode];
+      const other = p[mode === 'light' ? 'dark' : 'light'];
+      if (other) return oppositeColour(other);
+    }
+    return paletteFor(mode)[slot];
+  }
+  // Plan settings with every colour resolved to a plain value for the mode being drawn.
+  function planStyle() {
+    const out = Object.assign({}, doc.settings);
+    for (const k of COLOUR_KEYS) out[k] = colourFrom([doc.settings[k]], THEME_COLOURS[k], palMode);
+    return out;
+  }
 
   function cleanSettings(raw) {
     const out = defaultSettings(), src = raw || {};
-    const colour = v => /^#[0-9a-f]{6}$/i.test(v);
-    for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor', 'objFillColor', 'objBorderColor']) if (colour(src[k])) out[k] = src[k];
+    for (const k of COLOUR_KEYS) out[k] = toPair(src[k], OLD_DEFAULT_COLOURS[k]);
     if (Number.isFinite(src.objBorderSize)) out.objBorderSize = Math.min(Math.max(Math.round(src.objBorderSize * 10) / 10, 0), 10);
     if (Number.isFinite(src.objHatchSpacing)) out.objHatchSpacing = Math.min(Math.max(Math.round(src.objHatchSpacing), 3), 60);
     if (FILLS[src.objFillStyle]) out.objFillStyle = src.objFillStyle;
@@ -382,7 +423,7 @@
       };
       // Fill overrides are optional; without them the object follows the plan settings.
       if (FILLS[src.fillStyle]) o.fillStyle = src.fillStyle;
-      if (isColour(src.fillColor)) o.fillColor = src.fillColor;
+      if (pairSet(toPair(src.fillColor))) o.fillColor = toPair(src.fillColor);
       if (src.hideName === true) o.hideName = true;
       if (src.hideSize === true) o.hideSize = true;
       return o;
@@ -442,7 +483,13 @@
     : layer.frozen ? `The “${layer.name}” layer is frozen — unfreeze it in Layers first.` : null;
   const objLayer = o => layerById(o.layer) || specialLayer('objects');
   // Effective object defaults: plan settings with the layer's overrides on top.
-  const objSettings = o => themed(Object.assign({}, doc.settings, objLayer(o).settings));
+  function objSettings(o) {
+    const own = objLayer(o).settings, out = Object.assign({}, doc.settings, own);
+    for (const k of COLOUR_KEYS) out[k] = colourFrom([own[k], doc.settings[k]], THEME_COLOURS[k], palMode);
+    return out;
+  }
+  // Pairs that decide an object's fill colour: its own, its layer's, the plan's.
+  const fillPairs = o => [o.fillColor, objLayer(o).settings.objFillColor, doc.settings.objFillColor];
   // Layer that receives new objects: the highlighted one if it holds objects, else the topmost object layer.
   function targetLayer() {
     const a = layerById(activeLayer);
@@ -625,7 +672,7 @@
 
   // Object interior: a plain colour, or hatch lines in that colour over white. The hatch turns with the object.
   function objectFillSvg(o, pw, ph) {
-    const st = objSettings(o), style = o.fillStyle || st.objFillStyle, color = o.fillColor || st.objFillColor;
+    const st = objSettings(o), style = o.fillStyle || st.objFillStyle, color = colourFrom(fillPairs(o), 'objFill', palMode);
     const box = `x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}"`;
     if (style === 'solid') return `<rect ${box} fill="${color}" fill-opacity=".85"/>`;
     const id = 'objfill-' + (o.id || 'new');
@@ -988,11 +1035,26 @@
   const TITLES = { door: 'Door', doorway: 'Doorway', window: 'Window' };
 
   // Builders for settings rows. `attr` names the data attribute the inputs carry; `overridden` marks rows set on a layer.
-  function settingControls(values, attr, overridden) {
+  // One colour setting: a swatch per mode. A dashed swatch is automatic; ↺ returns a picked one to automatic.
+  function colourRow(label, attr, key, own, chain, slot, marked) {
+    const side = mode => {
+      const auto = !(own && own[mode]), name = mode === 'light' ? 'Light' : 'Dark';
+      return `<span class="side${mode === currentMode() ? ' now' : ''}${auto ? ' auto' : ''}" title="${name} mode colour${auto ? ' (automatic)' : ''}">` +
+        `<i>${mode === 'light' ? '☀' : '☾'}</i><input type="color" ${attr}="${key}" data-side="${mode}" value="${colourFrom(chain, slot, mode)}">` +
+        `<button type="button" data-act="autoColour" data-level="${attr}" data-key="${key}" data-side="${mode}" title="Back to automatic" ${auto ? 'disabled' : ''}>↺</button></span>`;
+    };
+    return `<div class="field pair"><em>${marked ? '<b class="ovr" title="Set on this layer">●</b> ' : ''}${label}</em><span class="sides">${side('light')}${side('dark')}</span></div>`;
+  }
+  const planPairs = key => ({ own: doc.settings[key], chain: [doc.settings[key]] });
+
+  function settingControls(values, attr, overridden, pairsOf) {
     const wrap = (key, label, control, unit) =>
       `<label class="field"><em>${overridden && overridden.has(key) ? '<b class="ovr" title="Set on this layer">●</b> ' : ''}${label}</em>${control}${unit === undefined ? '' : `<span>${unit}</span>`}</label>`;
     return {
-      colour: (key, label) => wrap(key, label, `<input type="color" ${attr}="${key}" value="${values[key]}">`, ''),
+      colour: (key, label) => {
+        const { own, chain } = pairsOf(key);
+        return colourRow(label, attr, key, own, chain, THEME_COLOURS[key], !!overridden && overridden.has(key));
+      },
       number: (key, label, min, max, unit, step) => wrap(key, label, `<input type="number" ${attr}="${key}" min="${min}" max="${max}" step="${step || 1}" value="${values[key]}">`, unit),
       choice: (key, label, options) => wrap(key, label, `<select ${attr}="${key}">${options.map(([v, t]) => `<option value="${esc(v)}"${values[key] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`),
     };
@@ -1008,16 +1070,17 @@
   function layerPanelHtml(layer) {
     const done = '<div class="row"><button data-act="closeLayerPanel" class="primary">Done</button></div>';
     if (layer.kind === 'walls') {
-      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(planStyle(), 'data-set')) + done;
+      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(doc.settings, 'data-set', null, planPairs)) + done;
     }
     if (layer.kind === 'dimensions') {
-      return '<h3>Dimensions layer</h3><p>Holds all dimension lines.</p>' + dimSettingRows(settingControls(planStyle(), 'data-set')) + done;
+      return '<h3>Dimensions layer</h3><p>Holds all dimension lines.</p>' + dimSettingRows(settingControls(doc.settings, 'data-set', null, planPairs)) + done;
     }
     const own = Object.keys(layer.settings).length;
     return '<h3>Layer</h3>' +
       `<label class="field">Name<input type="text" data-lname value="${esc(layer.name)}"></label>` +
       '<h4>Object defaults on this layer</h4>' +
-      objectSettingRows(settingControls(themed(Object.assign({}, doc.settings, layer.settings)), 'data-lset', new Set(Object.keys(layer.settings)))) +
+      objectSettingRows(settingControls(Object.assign({}, doc.settings, layer.settings), 'data-lset', new Set(Object.keys(layer.settings)),
+        key => ({ own: layer.settings[key], chain: [layer.settings[key], doc.settings[key]] }))) +
       (own ? `<p>● ${own} setting${own > 1 ? 's' : ''} set on this layer; the rest follow the plan settings.</p>`
         : '<p>This layer follows the plan settings. Change a value here to set it for this layer only.</p>') +
       `<div class="row"><button data-act="clearLayerSettings" ${own ? '' : 'disabled'}>Use plan settings</button><button data-act="closeLayerPanel" class="primary">Done</button></div>`;
@@ -1091,7 +1154,8 @@
 
   // Selector that finds the same control again after the panel has been rebuilt.
   function controlKey(el) {
-    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]`;
+    const side = el.dataset.side ? `[data-side="${el.dataset.side}"]` : '';
+    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
     for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont']) if (k in el.dataset) return `[data-${k}]`;
     return null;
   }
@@ -1110,12 +1174,12 @@
     if (layerPanel) {
       h = layerPanelHtml(layerById(layerPanel));
     } else if (showSettings) {
-      const st = doc.settings, c = settingControls(planStyle(), 'data-set');
+      const st = doc.settings, c = settingControls(st, 'data-set', null, planPairs);
       const option = (value, label, current) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`;
       h = '<h3>Settings</h3><h4>Appearance</h4>' +
         `<label class="field">Theme<select data-app="theme">${Object.entries(THEMES).map(([k, t]) => option(k, t.name, appearance.theme)).join('')}</select></label>` +
         `<label class="field">Mode<select data-app="mode">${[['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']].map(([k, t]) => option(k, t, appearance.mode)).join('')}</select></label>` +
-        '<p>Theme and mode apply to this browser. Plan colours left at their defaults follow the theme; colours you pick below stay as chosen.</p>' +
+        '<p>Theme and mode apply to this browser. Each colour below has a light-mode (☀) and a dark-mode (☾) value: pick one and the other is derived from it, or pick both. A dashed swatch is automatic; ↺ makes a picked one automatic again.</p>' +
         '<h4>Walls</h4>' + wallSettingRows(c) +
         '<h4>Dimensions</h4>' + dimSettingRows(c) +
         '<h4>Objects</h4>' + objectSettingRows(c) +
@@ -1147,7 +1211,7 @@
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
         `<label class="field">Layer<select data-olayer>${doc.layers.slice().reverse().filter(l => l.kind === 'objects').map(l => `<option value="${esc(l.id)}"${l.id === obj.layer ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` +
         `<label class="field">Fill style<select data-ofill="fillStyle"><option value="">Default (${FILLS[objSettings(obj).objFillStyle]})</option>${Object.entries(FILLS).map(([v, t]) => `<option value="${v}"${obj.fillStyle === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` +
-        `<label class="field">Fill colour<input type="color" data-ofill="fillColor" value="${obj.fillColor || objSettings(obj).objFillColor}"><span></span></label>` +
+        colourRow('Fill colour', 'data-ofill', 'fillColor', obj.fillColor, fillPairs(obj), 'objFill') +
         (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill of its layer.</p>') +
         `<label class="check"><input type="checkbox" data-oflag="hideName"${obj.hideName ? ' checked' : ''}> Hide name on plan</label>` +
         `<label class="check"><input type="checkbox" data-oflag="hideSize"${obj.hideSize ? ' checked' : ''}> Hide dimensions on plan</label>` +
@@ -1210,19 +1274,24 @@
     }
   }
 
+  // A colour input edits one side of a pair; the other side is left as it is.
+  const withSide = (pair, input) => Object.assign(toPair(pair), { [input.dataset.side]: input.value });
+
   function applyLayerSetting(input) {
     const layer = layerById(layerPanel), key = input.dataset.lset;
+    if (input.dataset.side) { layer.settings[key] = withSide(layer.settings[key], input); return; }
     const value = input.type === 'number' ? Number(input.value) : input.value;
     layer.settings[key] = cleanSettings(Object.assign({}, doc.settings, { [key]: value }))[key];
   }
   function applySetting(input) {
     const key = input.dataset.set;
-    const value = input.type === 'number' ? Number(input.value) : input.value;
+    const value = input.dataset.side ? withSide(doc.settings[key], input) : input.type === 'number' ? Number(input.value) : input.value;
     doc.settings = cleanSettings(Object.assign({}, doc.settings, { [key]: value }));
   }
   function applyObjectFill(input) {
     const o = selectedObject(), key = input.dataset.ofill;
-    if (input.value) o[key] = input.value; else delete o[key];
+    if (input.dataset.side) o[key] = withSide(o[key], input);
+    else if (input.value) o[key] = input.value; else delete o[key];
   }
   // Applies one side-panel control to the plan. `live` is true while the user is still typing.
   // Returns 'doc' if the plan changed, 'defaults' if a tool default changed, null if nothing was applied.
@@ -1339,6 +1408,13 @@
       setHidden(allDims().filter(d => d.comp === obj.comp).map(d => d.key), act === 'hideWallDims');
     }
     if (act === 'defaultFill') { delete obj.fillStyle; delete obj.fillColor; }
+    if (act === 'autoColour') {
+      // Back to automatic for one side; an override with nothing left set is dropped altogether.
+      const { level, key, side } = e.target.dataset;
+      const holder = level === 'data-set' ? doc.settings : level === 'data-lset' ? layerById(layerPanel).settings : obj;
+      const pair = Object.assign(toPair(holder[key]), { [side]: null });
+      if (level === 'data-set' || pairSet(pair)) holder[key] = pair; else delete holder[key];
+    }
     if (act === 'rotateLeft') obj.rot = normAngle(obj.rot - 90);
     if (act === 'rotateRight') obj.rot = normAngle(obj.rot + 90);
     if (act === 'resetSettings') doc.settings = defaultSettings();
@@ -1981,12 +2057,12 @@
   }
 
   async function buildExportSvg(lightColours) {
-    const keep = sel, keepPal = pal;
+    const keep = sel, keepPal = pal, keepMode = palMode;
     sel = null;                 // no selection highlight or handles in the export
-    if (lightColours) setPalette(THEMES.default.light.canvas);
+    if (lightColours) setPalette(THEMES.default.light.canvas, 'light');
     const paper = PAPER;
     let body;
-    try { body = layersSvg(); } finally { sel = keep; setPalette(keepPal); }
+    try { body = layersSvg(); } finally { sel = keep; setPalette(keepPal, keepMode); }
     // Measure the drawing in a hidden SVG so labels and dimension lines are included in the frame.
     const probe = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     probe.setAttribute('style', 'position:absolute;left:-99999px;top:0;width:10px;height:10px;overflow:hidden');
