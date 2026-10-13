@@ -1377,6 +1377,12 @@
       const r = dragRect(drag);
       if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '', layer: targetLayer().id, shape: drag.shape }, false, true));
     }
+    if (drag && drag.kind === 'movevertex' && drag.guide) {
+      // Faint line through the neighbour the corner has lined up with, running a little past both.
+      const [a, b] = drag.guide.map(p => S(...objToWorld(drag.o, p[0], p[1])));
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = (b[0] - a[0]) / len * 40, uy = (b[1] - a[1]) / len * 40;
+      h.push(line([a[0] - ux, a[1] - uy], [b[0] + ux, b[1] + uy], `stroke="${ACCENT}" stroke-opacity=".45" stroke-width="1" stroke-dasharray="6 4"`));
+    }
     if (tool === 'polygon' && polyDraft.length) {
       const world = polyDraft.concat(polyHover ? [polyHover] : []), pts = world.map(p => S(p[0], p[1]));
       if (pts.length > 1) h.push(sideLengthsSvg(pts, world, false));
@@ -1662,7 +1668,7 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) +
         (obj.shape === 'polygon'
-          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (press Shift to line it up with a neighbouring corner and slide along that line); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
+          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (press Shift to line it up with a neighbouring corner and slide along that line; a faint guide appears when it also lines up with the other neighbour); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
             `<div class="row"><button data-act="delVertex" ${vertexSel && vertexSel.id === obj.id && obj.points.length > 3 ? '' : 'disabled'}>Delete selected corner</button></div>`
           : field('Width', 'w', obj.w) + field('Height', 'h', obj.h)) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
@@ -2320,7 +2326,20 @@
       const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) }), pts = drag.o.points, n = pts.length, pt = [l.x, l.y];
       if (!e.shiftKey) drag.lock = null;
       else if (!drag.lock) drag.lock = alignToNeighbour(pt, pts[(drag.index + n - 1) % n], pts[(drag.index + 1) % n]);
-      if (drag.lock) pt[drag.lock.axis] = drag.lock.value;
+      drag.guide = null;
+      if (drag.lock) {
+        pt[drag.lock.axis] = drag.lock.value;
+        // Sliding along the held line: when the corner comes level with a neighbour on the other axis too,
+        // it catches there and a guide line shows the alignment.
+        const free = 1 - drag.lock.axis, tol = 6 / view.scale;
+        for (const nb of [pts[(drag.index + n - 1) % n], pts[(drag.index + 1) % n]]) {
+          if (Math.abs(pt[free] - nb[free]) <= tol && Math.abs(pt[drag.lock.axis] - nb[drag.lock.axis]) > tol) {
+            pt[free] = nb[free];
+            drag.guide = [nb.slice(), pt.slice()];
+            break;
+          }
+        }
+      }
       pts[drag.index] = pt;
     } else if (drag.kind === 'resizecompass') {
       // The centre stays put; the dragged corner sets the diameter.
