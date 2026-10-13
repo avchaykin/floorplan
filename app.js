@@ -716,6 +716,26 @@
     return `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" ${attrs}/>`;
   }
 
+  // Length labels along a run of sides, placed just outside the shape and turned to follow each side.
+  function sideLengthsSvg(screenPts, worldPts, closed) {
+    const st = planStyle(), n = screenPts.length;
+    const cx = screenPts.reduce((t, p) => t + p[0], 0) / n, cy = screenPts.reduce((t, p) => t + p[1], 0) / n;
+    let g = '';
+    for (let i = 0; i < (closed ? n : n - 1); i++) {
+      const a = screenPts[i], b = screenPts[(i + 1) % n], wa = worldPts[i], wb = worldPts[(i + 1) % n];
+      const px = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (px < 26) continue;                       // too short on screen for a label
+      let nx = (b[1] - a[1]) / px, ny = -(b[0] - a[0]) / px;
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
+      let angle = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+      if (angle >= 90) angle -= 180; else if (angle < -90) angle += 180;
+      const tx = mx + nx * 13, ty = my + ny * 13;
+      g += `<text x="${f(tx)}" y="${f(ty)}" transform="rotate(${f(angle)} ${f(tx)} ${f(ty)})" style="font-family:${fontCss(st.dimFont)};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${ACCENT}" stroke="${PAPER}" stroke-width="3" paint-order="stroke">${fmt(Math.hypot(wb[0] - wa[0], wb[1] - wa[1]))}</text>`;
+    }
+    return g;
+  }
+
   function objectHandles(o) {
     const at = (lx, ly) => S(...objToWorld(o, lx, ly));
     if (o.shape === 'polygon') {
@@ -773,6 +793,7 @@
     }
     g += '</g>';
     if (selected && !objLayer(o).frozen) {
+      if (o.shape === 'polygon') g += sideLengthsSvg(o.points.map(p => S(...objToWorld(o, p[0], p[1]))), o.points, true);
       const hs = objectHandles(o), rot = hs[hs.length - 1], top = hs.find(x => x.id === 'n' || x.id === 'top');
       g += line(top.p, rot.p, `stroke="${ACCENT}" stroke-width="1"`);
       for (const hp of hs) {
@@ -1357,7 +1378,8 @@
       if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '', layer: targetLayer().id, shape: drag.shape }, false, true));
     }
     if (tool === 'polygon' && polyDraft.length) {
-      const pts = polyDraft.concat(polyHover ? [polyHover] : []).map(p => S(p[0], p[1]));
+      const world = polyDraft.concat(polyHover ? [polyHover] : []), pts = world.map(p => S(p[0], p[1]));
+      if (pts.length > 1) h.push(sideLengthsSvg(pts, world, false));
       h.push(`<path d="M${pts.map(p => f(p[0]) + ' ' + f(p[1])).join('L')}" fill="none" stroke="${ACCENT}" stroke-width="1.5" stroke-dasharray="5 3"/>`);
       pts.slice(0, polyDraft.length).forEach((p, i) => h.push(`<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${i ? 3 : 5}" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`));
     }
@@ -1640,7 +1662,7 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) +
         (obj.shape === 'polygon'
-          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (hold Shift to square it up with its neighbours); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
+          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (hold Shift to move it along one axis only); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
             `<div class="row"><button data-act="delVertex" ${vertexSel && vertexSel.id === obj.id && obj.points.length > 3 ? '' : 'disabled'}>Delete selected corner</button></div>`
           : field('Width', 'w', obj.w) + field('Height', 'h', obj.h)) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
@@ -1956,7 +1978,7 @@
   // ---------- Tools and pointer input ----------
 
   const HINTS = {
-    select: 'Click to select · drag or arrow keys to move · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
+    select: 'Click to select · drag or arrow keys to move (Shift: one axis) · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     ellipse: 'Drag to draw a round object, or click to drop one · Esc to cancel',
@@ -2033,15 +2055,8 @@
     return pt;
   }
 
-  // Shift while dragging a corner: square it up with its two neighbours (in the polygon's own frame),
-  // each along whichever axis is nearer; if both ask for the same axis the closer neighbour wins.
-  function squareUp(l, prev, next) {
-    const axis = n => Math.abs(l.x - n[0]) < Math.abs(l.y - n[1]) ? 0 : 1, at = i => i ? l.y : l.x;
-    const ap = axis(prev), an = axis(next), out = [l.x, l.y];
-    if (ap !== an) { out[ap] = prev[ap]; out[an] = next[an]; }
-    else out[ap] = (Math.abs(at(ap) - prev[ap]) <= Math.abs(at(ap) - next[ap]) ? prev : next)[ap];
-    return out;
-  }
+  // With Shift held a move keeps to one axis: the smaller of the two offsets is dropped.
+  const axisLock = (dx, dy, e) => !e.shiftKey ? [dx, dy] : Math.abs(dx) >= Math.abs(dy) ? [dx, 0] : [0, dy];
 
   // Turns the corners clicked with the polygon tool into an object and selects it.
   function finishPolygon() {
@@ -2160,7 +2175,7 @@
           obj.points.splice(++index, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
         }
         vertexSel = { id: obj.id, index };
-        drag = { kind: 'movevertex', o: obj, index };
+        drag = { kind: 'movevertex', o: obj, index, start: objToWorld(obj, obj.points[index][0], obj.points[index][1]) };
         return renderAll();
       }
       if (hp) {
@@ -2266,8 +2281,9 @@
     } else if (drag.kind === 'newobject') {
       drag.b = { x: snapv(w.x, e), y: snapv(w.y, e) };
     } else if (drag.kind === 'moveobject' || drag.kind === 'movemark') {
-      drag.o.x = drag.orig.x + snapv(w.x - drag.w0.x, e);
-      drag.o.y = drag.orig.y + snapv(w.y - drag.w0.y, e);
+      const [dx, dy] = axisLock(snapv(w.x - drag.w0.x, e), snapv(w.y - drag.w0.y, e), e);
+      drag.o.x = drag.orig.x + dx;
+      drag.o.y = drag.orig.y + dy;
     } else if (drag.kind === 'rotateobject') {
       const step = e.altKey ? 1 : 15;
       const ang = Math.atan2(w.y - drag.o.y, w.x - drag.o.x) * 180 / Math.PI + 90;
@@ -2275,16 +2291,21 @@
     } else if (drag.kind === 'newcomment') {
       drag.b = { x: snapv(w.x, e), y: snapv(w.y, e) };
     } else if (drag.kind === 'newruler') {
-      drag.b = snapPoint(w, e);
+      // Shift keeps the dimension horizontal or vertical.
+      const q = snapPoint(w, e), [dx, dy] = axisLock(q.x - drag.a.x, q.y - drag.a.y, e);
+      drag.b = { x: drag.a.x + dx, y: drag.a.y + dy };
     } else if (drag.kind === 'rulerend') {
-      const q = snapPoint(w, e);
-      drag.o['x' + drag.end] = q.x; drag.o['y' + drag.end] = q.y;
+      const q = snapPoint(w, e), other = 3 - drag.end, ox = drag.o['x' + other], oy = drag.o['y' + other];
+      const [dx, dy] = axisLock(q.x - ox, q.y - oy, e);
+      drag.o['x' + drag.end] = ox + dx; drag.o['y' + drag.end] = oy + dy;
     } else if (drag.kind === 'moveruler') {
-      const dx = snapv(w.x - drag.w0.x, e), dy = snapv(w.y - drag.w0.y, e), o0 = drag.orig;
+      const [dx, dy] = axisLock(snapv(w.x - drag.w0.x, e), snapv(w.y - drag.w0.y, e), e), o0 = drag.orig;
       Object.assign(drag.o, { x1: o0.x1 + dx, y1: o0.y1 + dy, x2: o0.x2 + dx, y2: o0.y2 + dy });
     } else if (drag.kind === 'movevertex') {
-      const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) }), pts = drag.o.points, n = pts.length;
-      pts[drag.index] = e.shiftKey ? squareUp(l, pts[(drag.index + n - 1) % n], pts[(drag.index + 1) % n]) : [l.x, l.y];
+      // The corner follows the pointer; with Shift only along one axis from where it started.
+      const [dx, dy] = axisLock(snapv(w.x, e) - drag.start[0], snapv(w.y, e) - drag.start[1], e);
+      const l = objToLocal(drag.o, { x: drag.start[0] + dx, y: drag.start[1] + dy });
+      drag.o.points[drag.index] = [l.x, l.y];
     } else if (drag.kind === 'resizecompass') {
       // The centre stays put; the dragged corner sets the diameter.
       const l = objToLocal(drag.o, w);
@@ -2311,8 +2332,7 @@
       renderPanel();
     }
     if (drag.kind === 'movewall') {
-      drag.dx = snapv(w.x - drag.w0.x, e);
-      drag.dy = snapv(w.y - drag.w0.y, e);
+      [drag.dx, drag.dy] = axisLock(snapv(w.x - drag.w0.x, e), snapv(w.y - drag.w0.y, e), e);
       drag.rect.x = drag.orig.x + drag.dx;
       drag.rect.y = drag.orig.y + drag.dy;
       for (const m of drag.openings) { m.o.x = m.x + drag.dx; m.o.y = m.y + drag.dy; }
