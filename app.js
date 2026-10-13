@@ -258,8 +258,8 @@
   };
   const icon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`;
 
-  // Per-object dimensions: its own side length, the gap to whatever is nearest, the gap to the nearest parallel side.
-  const MEASURE_TYPES = ['size', 'near', 'parallel'];
+  // Per-object dimensions: its own side length, the gap to the nearest other object, the gap to the nearest wall.
+  const MEASURE_TYPES = ['size', 'object', 'wall'];
 
   // Object settings a layer may override; everything else is plan-wide.
   const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
@@ -408,7 +408,7 @@
       if (pairSet(toPair(src.fillColor))) o.fillColor = toPair(src.fillColor);
       if (src.hideName === true) o.hideName = true;
       if (src.hideSize === true) o.hideSize = true;
-      // Optional dimensions per side, e.g. { size: 'lt', near: 'r' }; letters are l, r, t, b.
+      // Optional dimensions per side, e.g. { size: 'lt', wall: 'r' }; letters are l, r, t, b.
       if (src.measure && typeof src.measure === 'object') {
         const m = {};
         for (const type of MEASURE_TYPES) {
@@ -1058,10 +1058,13 @@
     return { a, b, len, n: [nx * c - ny * sn, nx * sn + ny * c], dir: [(b[0] - a[0]) / len, (b[1] - a[1]) / len] };
   }
 
-  // Wall outlines and the edges of every other visible object, as world segments.
-  function obstacleSegments(self) {
+  // What a side can be measured against: wall outlines, or the edges of every other visible object.
+  function obstacleSegments(self, kind) {
     const segs = [];
-    if (specialLayer('walls').visible) for (const sg of walls.segments) segs.push([[sg.x1, sg.y1], [sg.x2, sg.y2]]);
+    if (kind === 'wall') {
+      if (specialLayer('walls').visible) for (const sg of walls.segments) segs.push([[sg.x1, sg.y1], [sg.x2, sg.y2]]);
+      return segs;
+    }
     for (const o of doc.objects) {
       if (o === self || !objLayer(o).visible) continue;
       const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => objToWorld(o, x * o.w / 2, y * o.h / 2));
@@ -1070,34 +1073,35 @@
     return segs;
   }
 
-  // Straight out from the middle of the side: the first thing hit, whatever its angle.
-  function nearestFromSide(side, segs) {
-    const o = [(side.a[0] + side.b[0]) / 2, (side.a[1] + side.b[1]) / 2], d = side.n;
-    let best = Infinity;
-    for (const [p, q] of segs) {
-      const ex = q[0] - p[0], ey = q[1] - p[1], den = d[0] * ey - d[1] * ex;
-      if (Math.abs(den) < 1e-9) continue;
-      const t = ((p[0] - o[0]) * ey - (p[1] - o[1]) * ex) / den, u = ((p[0] - o[0]) * d[1] - (p[1] - o[1]) * d[0]) / den;
-      if (t > 0.5 && u >= 0 && u <= 1 && t < best) best = t;
-    }
-    return best < Infinity ? { from: o, to: [o[0] + d[0] * best, o[1] + d[1] * best], dist: best } : null;
+  // Distance along d from point o to segment p-q, or null if the ray misses it.
+  function rayToSegment(o, d, p, q) {
+    const ex = q[0] - p[0], ey = q[1] - p[1], den = d[0] * ey - d[1] * ex;
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((p[0] - o[0]) * ey - (p[1] - o[1]) * ex) / den, u = ((p[0] - o[0]) * d[1] - (p[1] - o[1]) * d[0]) / den;
+    return t > 0.5 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
   }
 
-  // The closest wall or object edge that runs parallel to the side and faces some part of it.
-  function nearestParallelSide(side, segs) {
-    let best = null;
+  // Gap straight out from a side: how far the whole side can slide outwards before it touches something.
+  // First contact is always at an end of the side or at an end of the other segment.
+  function gapFromSide(side, segs) {
+    const n = side.n, back = [-n[0], -n[1]], hits = [];
     for (const [p, q] of segs) {
-      const ex = q[0] - p[0], ey = q[1] - p[1], el = Math.hypot(ex, ey);
-      if (!el || Math.abs(side.dir[0] * ey - side.dir[1] * ex) / el > 0.01) continue;
-      const dist = (p[0] - side.a[0]) * side.n[0] + (p[1] - side.a[1]) * side.n[1];
-      if (dist < 0.5) continue;
-      const along = pt => (pt[0] - side.a[0]) * side.dir[0] + (pt[1] - side.a[1]) * side.dir[1];
-      const lo = Math.max(Math.min(along(p), along(q)), 0), hi = Math.min(Math.max(along(p), along(q)), side.len);
-      if (hi - lo < 0.5 || (best && dist >= best.dist)) continue;
-      const mid = (lo + hi) / 2, from = [side.a[0] + side.dir[0] * mid, side.a[1] + side.dir[1] * mid];
-      best = { from, to: [from[0] + side.n[0] * dist, from[1] + side.n[1] * dist], dist };
+      for (const o of [side.a, side.b]) {
+        const t = rayToSegment(o, n, p, q);
+        if (t !== null) hits.push({ t, from: o });
+      }
+      for (const o of [p, q]) {
+        const t = rayToSegment(o, back, side.a, side.b);
+        if (t !== null) hits.push({ t, from: [o[0] - n[0] * t, o[1] - n[1] * t] });
+      }
     }
-    return best;
+    if (!hits.length) return null;
+    const dist = Math.min(...hits.map(x => x.t));
+    // Facing a parallel edge, contact happens along a stretch of the side: measure in the middle of it.
+    const along = hits.filter(x => x.t - dist < 0.5).map(x => (x.from[0] - side.a[0]) * side.dir[0] + (x.from[1] - side.a[1]) * side.dir[1]);
+    const mid = (Math.min(...along) + Math.max(...along)) / 2;
+    const from = [side.a[0] + side.dir[0] * mid, side.a[1] + side.dir[1] * mid];
+    return { from, to: [from[0] + n[0] * dist, from[1] + n[1] * dist], dist };
   }
 
   // A dimension between two world points at any angle. With an offset it is drawn beside them
@@ -1118,19 +1122,19 @@
   function objectMeasuresSvg(o) {
     const m = o.measure;
     if (!m) return '';
-    let g = '', segs = null;
+    let g = '';
+    const segs = {};   // obstacle lists, built only when a gap is asked for
     for (const key of 'lrtb') {
       const wants = type => (m[type] || '').includes(key);
-      if (!wants('size') && !wants('near') && !wants('parallel')) continue;
+      if (!MEASURE_TYPES.some(wants)) continue;
       const side = objectSide(o, key);
       if (wants('size')) g += freeDimSvg(side.a, side.b, side.n, dimOffset(), fmt(side.len));
-      if (!wants('near') && !wants('parallel')) continue;
-      segs = segs || obstacleSegments(o);
-      const near = wants('near') && nearestFromSide(side, segs), par = wants('parallel') && nearestParallelSide(side, segs);
-      // Gaps are labelled on the side of the line that the object's edge runs towards.
-      if (near) g += freeDimSvg(near.from, near.to, side.dir, 0, fmt(near.dist));
-      if (par && !(near && Math.abs(near.dist - par.dist) < 0.5 && Math.hypot(near.from[0] - par.from[0], near.from[1] - par.from[1]) < 0.5)) {
-        g += freeDimSvg(par.from, par.to, [-side.dir[0], -side.dir[1]], 0, fmt(par.dist));
+      // The two gaps are labelled on opposite sides of their lines so they stay readable when they coincide.
+      for (const [kind, labelSide] of [['object', side.dir], ['wall', [-side.dir[0], -side.dir[1]]]]) {
+        if (!wants(kind)) continue;
+        segs[kind] = segs[kind] || obstacleSegments(o, kind);
+        const gap = gapFromSide(side, segs[kind]);
+        if (gap) g += freeDimSvg(gap.from, gap.to, labelSide, 0, fmt(gap.dist));
       }
     }
     return g;
@@ -1443,8 +1447,8 @@
         `<label class="check"><input type="checkbox" data-oflag="hideSize"${obj.hideSize ? ' checked' : ''}> Hide dimensions on plan</label>` +
         '<h4>Dimensions on plan</h4><table class="measure"><tr><th></th><th>L</th><th>R</th><th>T</th><th>B</th></tr>' +
         [['size', 'Side length', 'Length of this side, drawn outside the object'],
-          ['near', 'To nearest', 'Gap from the middle of this side to the nearest wall or object'],
-          ['parallel', 'To parallel side', 'Gap from this side to the nearest wall or object side that runs parallel to it']].map(([type, label, tip]) =>
+          ['object', 'To object', 'Gap straight out from this side to the nearest other object'],
+          ['wall', 'To wall', 'Gap straight out from this side to the nearest wall']].map(([type, label, tip]) =>
           `<tr title="${tip}"><td>${label}</td>${'lrtb'.split('').map(k => `<td><input type="checkbox" data-measure="${type}" data-mside="${k}"${((obj.measure || {})[type] || '').includes(k) ? ' checked' : ''}></td>`).join('')}</tr>`).join('') +
         '</table><p>L, R, T, B are the object’s own sides and turn with it. These lines are drawn with the Dimensions layer.</p>' +
         descriptionField() +
