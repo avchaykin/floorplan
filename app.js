@@ -430,7 +430,14 @@
 
   const layerById = id => doc.layers.find(l => l.id === id);
   const specialLayer = kind => doc.layers.find(l => l.kind === kind);
-  const usable = layer => layer.visible && !layer.frozen;
+  // Layer of the current selection. A frozen layer can be selected from but not changed.
+  function selLayer() {
+    if (!sel) return null;
+    if (sel.kind === 'object') { const o = doc.objects.find(x => x.id === sel.id); return o ? objLayer(o) : null; }
+    return specialLayer(sel.kind === 'dim' || sel.kind === 'mark' ? 'dimensions' : 'walls');
+  }
+  const selLocked = () => { const layer = selLayer(); return !!layer && layer.frozen; };
+  const lockedNote = () => `The “${selLayer().name}” layer is frozen — unfreeze it in Layers to make changes.`;
   const whyBlocked = layer => !layer.visible ? `The “${layer.name}” layer is hidden — switch it on in Layers first.`
     : layer.frozen ? `The “${layer.name}” layer is frozen — unfreeze it in Layers first.` : null;
   const objLayer = o => layerById(o.layer) || specialLayer('objects');
@@ -647,7 +654,7 @@
       g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="${PAPER}" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
     }
     g += '</g>';
-    if (selected) {
+    if (selected && !objLayer(o).frozen) {
       const hs = objectHandles(o), rot = hs[hs.length - 1], top = hs.find(x => x.id === 'n');
       g += line(top.p, rot.p, `stroke="${ACCENT}" stroke-width="1"`);
       for (const hp of hs) {
@@ -934,7 +941,7 @@
       if (r) {
         const [x, y] = S(r.x, r.y);
         h.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(r.w * view.scale)}" height="${f(r.h * view.scale)}" fill="rgba(26,115,232,.18)" stroke="${ACCENT}" stroke-width="1.5" stroke-dasharray="5 3"/>`);
-        for (const hp of handlePoints(r)) h.push(`<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`);
+        if (!selLocked()) for (const hp of handlePoints(r)) h.push(`<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`);
       }
     }
 
@@ -1033,7 +1040,7 @@
         const count = l.kind === 'objects' ? doc.objects.filter(o => o.layer === l.id).length : '';
         return `<li data-layer="${esc(l.id)}" class="${l.id === activeLayer ? 'active' : ''}${l.visible ? '' : ' hidden-layer'}">` +
           `<button data-lact="vis" class="${l.visible ? '' : 'off'}" title="${l.visible ? 'Hide layer' : 'Show layer'}">${icon(l.visible ? 'eye' : 'eyeOff')}</button>` +
-          `<button data-lact="freeze" class="${l.frozen ? 'on' : 'off'}" title="${l.frozen ? 'Unfreeze layer' : 'Freeze layer (cannot be selected or moved)'}">${icon(l.frozen ? 'lock' : 'lockOpen')}</button>` +
+          `<button data-lact="freeze" class="${l.frozen ? 'on' : 'off'}" title="${l.frozen ? 'Unfreeze layer' : 'Freeze layer (can be selected but not changed)'}">${icon(l.frozen ? 'lock' : 'lockOpen')}</button>` +
           `<span class="lname">${esc(l.name)}</span><span class="lkind">${count}</span></li>`;
       }).join('') + '</ul>';
   }
@@ -1093,9 +1100,9 @@
     const obj = selectedObject();
     if (sel && !obj) sel = null;
     if (sel) {
-      // Nothing stays selected on a layer that has been hidden or frozen.
-      const layer = sel.kind === 'object' ? obj && objLayer(obj) : specialLayer(sel.kind === 'dim' || sel.kind === 'mark' ? 'dimensions' : 'walls');
-      if (layer && !usable(layer)) sel = null;
+      // Nothing stays selected on a layer that has been hidden.
+      const layer = selLayer();
+      if (layer && !layer.visible) sel = null;
     }
     if (sel || tool !== 'select') { showSettings = false; layerPanel = null; }
     if (layerPanel && !layerById(layerPanel)) layerPanel = null;
@@ -1185,14 +1192,16 @@
       h += '</details>';
     }
     // Rebuilding replaces every control, so keep the keyboard focus on the same field afterwards.
-    const view = JSON.stringify([tool, sel, showSettings, layerPanel]);
+    const view = JSON.stringify([tool, sel, showSettings, layerPanel, selLocked()]);
     const active = panel.contains(document.activeElement) ? document.activeElement : null;
     // A dropdown or colour picker that was just opened would be closed by a rebuild; it refreshes on its own change.
     if (active && active !== panelSource && view === panelView && (active.tagName === 'SELECT' || active.type === 'color')) return;
     const key = active && controlKey(active);
     const caret = active && (active.type === 'text' || active.tagName === 'TEXTAREA') ? [active.selectionStart, active.selectionEnd] : null;
     panelView = view;
-    panel.innerHTML = h;
+    const locked = selLocked() && tool === 'select';
+    panel.innerHTML = locked ? `<p class="locked">🔒 ${esc(lockedNote())}</p>` + h : h;
+    if (locked) for (const el of panel.querySelectorAll('input, select, textarea, button')) el.disabled = true;
     const again = key && panel.querySelector(key);
     if (again) {
       again.focus();
@@ -1346,6 +1355,7 @@
 
   function deleteSelection() {
     if (!sel) return;
+    if (selLocked()) return toast(lockedNote());
     if (sel.kind === 'wall') doc.walls = doc.walls.filter(w => w.id !== sel.id);
     else if (sel.kind === 'object') doc.objects = doc.objects.filter(o => o.id !== sel.id);
     else if (sel.kind === 'mark') doc.marks = doc.marks.filter(m => m.id !== sel.id);
@@ -1402,6 +1412,7 @@
   function nudgeSelection(dx, dy) {
     const obj = selectedObject();
     if (!obj) return;
+    if (selLocked()) return toast(lockedNote());
     if (sel.kind === 'wall') {
       const riders = doc.openings.filter(o => o.x >= obj.x && o.x <= obj.x + obj.w && o.y >= obj.y && o.y <= obj.y + obj.h);
       obj.x += dx; obj.y += dy;
@@ -1465,7 +1476,7 @@
     }
 
     // Select tool: handles of the current selection first, then whatever is on top.
-    if (sel && sel.kind === 'wall') {
+    if (sel && sel.kind === 'wall' && !selLocked()) {
       const rect = selectedObject();
       const hp = rect && handlePoints(rect).find(h => Math.abs(h.p[0] - p.x) <= 6 && Math.abs(h.p[1] - p.y) <= 6);
       if (hp) {
@@ -1473,7 +1484,7 @@
         return;
       }
     }
-    if (sel && sel.kind === 'object') {
+    if (sel && sel.kind === 'object' && !selLocked()) {
       const obj = selectedObject();
       const hp = obj && objectHandles(obj).find(h => Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
       if (hp) {
@@ -1481,21 +1492,23 @@
         return;
       }
     }
-    // The topmost layer under the pointer wins; hidden and frozen layers are passed through.
+    // The topmost layer under the pointer wins; hidden layers are passed through.
+    // On a frozen layer things can be selected (to look at them) but no drag starts.
     for (const layer of doc.layers.slice().reverse()) {
-      if (!usable(layer)) continue;
+      if (!layer.visible) continue;
+      const free = !layer.frozen;
       if (layer.kind === 'objects') {
         const thing = hitObject(w, layer.id);
         if (thing) {
           sel = { kind: 'object', id: thing.id };
-          drag = { kind: 'moveobject', o: thing, w0: w, orig: { x: thing.x, y: thing.y } };
+          if (free) drag = { kind: 'moveobject', o: thing, w0: w, orig: { x: thing.x, y: thing.y } };
           return renderAll();
         }
       } else if (layer.kind === 'dimensions') {
         const mark = hitMark(p);
         if (mark) {
           sel = { kind: 'mark', id: mark.id };
-          drag = { kind: 'movemark', o: mark, w0: w, orig: { x: mark.x, y: mark.y } };
+          if (free) drag = { kind: 'movemark', o: mark, w0: w, orig: { x: mark.x, y: mark.y } };
           return renderAll();
         }
         const dim = hitDim(p);
@@ -1507,18 +1520,18 @@
         const o = hitOpening(w);
         if (o) {
           sel = { kind: 'opening', id: o.id };
-          drag = { kind: 'moveopening', o };
+          if (free) drag = { kind: 'moveopening', o };
           return renderAll();
         }
         const edge = hitEdge(p);
         if (edge) {
           sel = { kind: 'edge', key: edge.key };
-          drag = { kind: 'pending', p, w0: w, rect: hitRect(w, 5) };
+          if (free) drag = { kind: 'pending', p, w0: w, rect: hitRect(w, 5) };
           return renderAll();
         }
         const rect = hitRect(w);
         if (rect) {
-          startMoveWall(rect, w);
+          if (free) startMoveWall(rect, w); else sel = { kind: 'wall', id: rect.id };
           return renderAll();
         }
       }
