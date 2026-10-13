@@ -1278,7 +1278,7 @@
   // ---------- Tools and pointer input ----------
 
   const HINTS = {
-    select: 'Click to select · drag or arrow keys to move · drag empty space to pan · pinch or ⌘-scroll to zoom · Delete removes',
+    select: 'Click to select · drag or arrow keys to move · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     mark: 'Click to place a ceiling height mark · Esc to finish',
@@ -1545,12 +1545,14 @@
   svg.addEventListener('wheel', e => {
     e.preventDefault();
     const p = pointer(e);
-    if (e.ctrlKey || e.metaKey) {
-      zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.01));
-    } else {
+    if (e.shiftKey) {
+      // Shift + scroll pans; a mouse wheel reports its movement on either axis depending on the browser.
       view.ox -= e.deltaX;
       view.oy -= e.deltaY;
       render();
+    } else {
+      // Scrolling zooms about the pointer. Pinch gestures arrive as ctrl + wheel with much smaller steps.
+      zoomAt(p.x, p.y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
     }
   }, { passive: false });
 
