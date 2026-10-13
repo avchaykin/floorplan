@@ -152,53 +152,27 @@
   const svg = $('#canvas'), panel = $('#panel');
 
   const BAD = '#c62828';
-  let INK, ACCENT, PAPER, JAMB;   // canvas colours of the active theme, set by setPalette()
+  let INK, ACCENT, PAPER, JAMB;   // canvas colours of the active mode, set by setPalette()
 
-  // Each theme has a light and a dark variant: `ui` colours go to CSS variables, `canvas` colours to the drawing.
-  // wall/dim/dimText/objText/objFill/objBorder replace plan colours that are still at their built-in defaults.
-  const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-  const THEMES = {
-    default: {
-      name: 'Default',
-      light: {
-        ui: { bg: '#f3f4f6', surface: '#ffffff', border: '#d5d8dd', text: '#1f2328', muted: '#6b7280', accent: '#1a73e8', 'on-accent': '#ffffff', hover: '#eef1f5', active: '#e3eefd', off: '#b6bcc5', warn: '#b45309', err: '#c62828', ok: '#2e7d32', font: SANS },
-        canvas: { paper: '#ffffff', gridMinor: '#eef0f3', gridMajor: '#d9dde3', ink: '#2b2b2b', accent: '#1a73e8', jamb: '#9aa0a6', wall: '#4d4d4d', dim: '#5f6b7a', dimText: '#5f6b7a', objText: '#5f6b7a', objFill: '#ffffff', objBorder: '#2b2b2b' },
-      },
-      dark: {
-        ui: { bg: '#16181c', surface: '#1f2227', border: '#363b44', text: '#e6e8eb', muted: '#9aa3af', accent: '#5aa2ff', 'on-accent': '#0b1220', hover: '#2a2e35', active: '#253a5a', off: '#5b626d', warn: '#f0a35a', err: '#ff7b72', ok: '#6fcf7c', font: SANS },
-        canvas: { paper: '#1b1d21', gridMinor: '#23262b', gridMajor: '#30343b', ink: '#d7dae0', accent: '#5aa2ff', jamb: '#6b7280', wall: '#b9bec7', dim: '#9aa3af', dimText: '#c3c9d2', objText: '#c3c9d2', objFill: '#262a30', objBorder: '#d7dae0' },
-      },
+  // Light and dark palettes: `ui` colours go to CSS variables, `canvas` colours to the drawing.
+  // wall/dim/dimText/objText/objFill/objBorder are used for plan colours that are left on automatic.
+  const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  const PALETTES = {
+    light: {
+      ui: { bg: '#f3f4f6', surface: '#ffffff', border: '#d5d8dd', text: '#1f2328', muted: '#6b7280', accent: '#1a73e8', 'on-accent': '#ffffff', hover: '#eef1f5', active: '#e3eefd', off: '#b6bcc5', warn: '#b45309', err: '#c62828', ok: '#2e7d32', font: SANS },
+      canvas: { paper: '#ffffff', gridMinor: '#eef0f3', gridMajor: '#d9dde3', ink: '#2b2b2b', accent: '#1a73e8', jamb: '#9aa0a6', wall: '#4d4d4d', dim: '#5f6b7a', dimText: '#5f6b7a', objText: '#5f6b7a', objFill: '#ffffff', objBorder: '#2b2b2b' },
     },
-    blueprint: {
-      name: 'Blueprint',
-      light: {
-        ui: { bg: '#e8f0f8', surface: '#f6f9fc', border: '#b9cde2', text: '#12324f', muted: '#55718d', accent: '#1259a8', 'on-accent': '#ffffff', hover: '#dfeaf5', active: '#cfe0f2', off: '#a9bfd6', warn: '#a8500a', err: '#b3261e', ok: '#1f6f3a', font: SANS },
-        canvas: { paper: '#f3f8fd', gridMinor: '#e2edf7', gridMajor: '#c9dcef', ink: '#12406d', accent: '#d9480f', jamb: '#8fb0d0', wall: '#1a4f85', dim: '#3d6d9c', dimText: '#12406d', objText: '#12406d', objFill: '#ffffff', objBorder: '#12406d' },
-      },
-      dark: {
-        ui: { bg: '#0b2a4a', surface: '#0f355c', border: '#2b5b8c', text: '#e8f1fb', muted: '#9dbbd9', accent: '#ffd54a', 'on-accent': '#0b2a4a', hover: '#174572', active: '#1d5288', off: '#4f7aa6', warn: '#ffc66b', err: '#ff9d94', ok: '#8fe3a0', font: SANS },
-        canvas: { paper: '#123f6d', gridMinor: '#17487a', gridMajor: '#22598f', ink: '#eaf3ff', accent: '#ffd54a', jamb: '#7fa8d1', wall: '#eaf3ff', dim: '#bcd6f0', dimText: '#eaf3ff', objText: '#eaf3ff', objFill: '#164a7e', objBorder: '#eaf3ff' },
-      },
-    },
-    scifi: {
-      name: 'Sci-fi',
-      light: {
-        ui: { bg: '#e9f1f2', surface: '#f7fbfb', border: '#b7d3d6', text: '#0d2b30', muted: '#4f7a80', accent: '#008c9e', 'on-accent': '#ffffff', hover: '#dcebed', active: '#c7e4e8', off: '#a5c3c7', warn: '#9a5b00', err: '#b3261e', ok: '#16794a', font: MONO },
-        canvas: { paper: '#f4fafa', gridMinor: '#e2eff0', gridMajor: '#c8dfe2', ink: '#0d4750', accent: '#c2189b', jamb: '#8fb9be', wall: '#0a6f7d', dim: '#2f8590', dimText: '#0d4750', objText: '#0d4750', objFill: '#ffffff', objBorder: '#0a6f7d' },
-      },
-      dark: {
-        ui: { bg: '#05080d', surface: '#0a1118', border: '#14323d', text: '#c8f7ff', muted: '#5f9aa6', accent: '#00e5ff', 'on-accent': '#001318', hover: '#0f1f29', active: '#0d3540', off: '#2c5560', warn: '#ffb84a', err: '#ff6b81', ok: '#39ffb6', font: MONO },
-        canvas: { paper: '#060b11', gridMinor: '#0b171f', gridMajor: '#10262f', ink: '#7df9ff', accent: '#ff3df2', jamb: '#1f6f7a', wall: '#00d8f0', dim: '#3fbfcc', dimText: '#9af6ff', objText: '#9af6ff', objFill: '#0c1a22', objBorder: '#39ffb6' },
-      },
+    dark: {
+      ui: { bg: '#16181c', surface: '#1f2227', border: '#363b44', text: '#e6e8eb', muted: '#9aa3af', accent: '#5aa2ff', 'on-accent': '#0b1220', hover: '#2a2e35', active: '#253a5a', off: '#5b626d', warn: '#f0a35a', err: '#ff7b72', ok: '#6fcf7c', font: SANS },
+      canvas: { paper: '#1b1d21', gridMinor: '#23262b', gridMajor: '#30343b', ink: '#d7dae0', accent: '#5aa2ff', jamb: '#6b7280', wall: '#b9bec7', dim: '#9aa3af', dimText: '#c3c9d2', objText: '#c3c9d2', objFill: '#262a30', objBorder: '#d7dae0' },
     },
   };
   const THEME_COLOURS = { wallColor: 'wall', dimColor: 'dim', dimFontColor: 'dimText', objFontColor: 'objText', objFillColor: 'objFill', objBorderColor: 'objBorder', titleFontColor: 'ink' };
 
-  // Theme and mode are a preference of this browser, not part of the plan.
-  const appearance = { theme: 'default', mode: 'system' };
+  // Light/dark mode is a preference of this browser, not part of the plan.
+  const appearance = { mode: 'system' };
   try {
     const saved = JSON.parse(localStorage.getItem('floorplan-appearance') || '{}');
-    if (THEMES[saved.theme]) appearance.theme = saved.theme;
     if (['system', 'light', 'dark'].includes(saved.mode)) appearance.mode = saved.mode;
   } catch (e) { /* keep defaults */ }
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -211,7 +185,7 @@
     INK = pal.ink; ACCENT = pal.accent; PAPER = pal.paper; JAMB = pal.jamb;
   }
   function applyAppearance() {
-    const mode = currentMode(), variant = THEMES[appearance.theme][mode], root = document.documentElement;
+    const mode = currentMode(), variant = PALETTES[mode], root = document.documentElement;
     for (const [k, v] of Object.entries(variant.ui)) root.style.setProperty('--' + k, v);
     root.style.setProperty('--paper', variant.canvas.paper);
     root.style.colorScheme = mode;   // native controls (scrollbars, selects, colour pickers) follow
@@ -361,7 +335,7 @@
     return '#' + rgb.map(v => Math.round(Math.min(Math.max(v + m, 0), 1) * 255).toString(16).padStart(2, '0')).join('');
   }
 
-  const paletteFor = mode => mode === palMode ? pal : THEMES[appearance.theme][mode].canvas;
+  const paletteFor = mode => mode === palMode ? pal : PALETTES[mode].canvas;
   // Colour for one mode from a list of pairs, most specific first; falls back to the theme.
   function colourFrom(pairs, slot, mode) {
     for (const p of pairs) {
@@ -1299,11 +1273,8 @@
       h = layerPanelHtml(layerById(layerPanel));
     } else if (showSettings) {
       const st = doc.settings, c = settingControls(st, 'data-set', null, planPairs);
-      const option = (value, label, current) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`;
-      h = '<h3>Settings</h3><h4>Appearance</h4>' +
-        `<label class="field">Theme<select data-app="theme">${Object.entries(THEMES).map(([k, t]) => option(k, t.name, appearance.theme)).join('')}</select></label>` +
-        `<label class="field">Mode<select data-app="mode">${[['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']].map(([k, t]) => option(k, t, appearance.mode)).join('')}</select></label>` +
-        '<p>Theme and mode apply to this browser. Each colour below has a light-mode (☀) and a dark-mode (☾) value: pick one and the other is derived from it, or pick both. A dashed swatch is automatic; ↺ makes a picked one automatic again.</p>' +
+      h = '<h3>Settings</h3>' +
+        '<p>Each colour has a light-mode (☀) and a dark-mode (☾) value: pick one and the other is derived from it, or pick both. A dashed swatch is automatic; ↺ makes a picked one automatic again.</p>' +
         '<h4>Walls</h4>' + wallSettingRows(c) +
         '<h4>Dimensions</h4>' + dimSettingRows(c) +
         '<h4>Objects</h4>' + objectSettingRows(c) +
@@ -1497,12 +1468,6 @@
       if (ds.tcol) { title.fontColor = withSide(title.fontColor, el); return 'doc'; }
     }
     if (ds.set) { applySetting(el); return 'doc'; }
-    if (ds.app) {
-      appearance[ds.app] = el.value;
-      localStorage.setItem('floorplan-appearance', JSON.stringify(appearance));
-      applyAppearance();
-      return 'view';
-    }
     if ('real' in ds && sel && sel.kind === 'dim') {
       const mm = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
       if (mm > 0) doc.realDimensions[sel.key] = mm; else delete doc.realDimensions[sel.key];
@@ -1523,7 +1488,6 @@
   panel.addEventListener('input', e => {
     const changed = applyPanelInput(e.target, true);
     if (changed === 'doc') { liveDirty = true; rebuild(); renderLayers(); render(); }
-    else if (changed === 'view') render();
     else if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
   });
 
@@ -1986,6 +1950,20 @@
     showSettings = open;
     renderAll();
   };
+  $('#btnMode').onclick = () => {
+    appearance.mode = currentMode() === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('floorplan-appearance', JSON.stringify(appearance));
+    applyAppearance();
+    renderAll();
+  };
+  // The calculator is tucked away until asked for; the choice is remembered.
+  function showCalculator(on) {
+    $('#calc').hidden = !on;
+    $('#btnCalc').classList.toggle('on', on);
+    localStorage.setItem('floorplan-calc', on ? '1' : '');
+  }
+  $('#btnCalc').onclick = () => showCalculator($('#calc').hidden);
+  showCalculator(localStorage.getItem('floorplan-calc') === '1');
   $('#btnUndo').onclick = () => stepHistory(-1);
   $('#btnRedo').onclick = () => stepHistory(1);
   $('#snapSelect').onchange = e => { snap = +e.target.value; render(); };
@@ -2280,7 +2258,7 @@
   async function buildExportSvg(lightColours) {
     const keep = sel, keepPal = pal, keepMode = palMode;
     sel = null;                 // no selection highlight or handles in the export
-    if (lightColours) setPalette(THEMES.default.light.canvas, 'light');
+    if (lightColours) setPalette(PALETTES.light.canvas, 'light');
     const paper = PAPER;
     let body;
     try { body = layersSvg(); } finally { sel = keep; setPalette(keepPal, keepMode); }
