@@ -536,12 +536,13 @@
       }
     }
 
-    // Size label inside the opening when there is room for it.
+    // Size label inside the opening when there is room for it; styled like the dimensions.
     const label = fmt(o.type === 'door' ? Math.min(o.doorSize, W) : W);
-    if (t * view.scale >= 13 && W * view.scale >= label.length * 7 + 8) {
+    const st = doc.settings, textColor = stroke === INK ? st.dimFontColor : stroke;
+    if (t * view.scale >= st.dimFontSize + 2 && W * view.scale >= label.length * st.dimFontSize * 0.64 + 8) {
       const [x, y] = P(0, 0);
       const rot = o.axis === 'v' ? ` transform="rotate(-90 ${f(x)} ${f(y)})"` : '';
-      h += `<text x="${f(x)}" y="${f(y)}" text-anchor="middle" dominant-baseline="central" fill="${stroke}" stroke="#fff" stroke-width="3" paint-order="stroke"${rot}>${label}</text>`;
+      h += `<text x="${f(x)}" y="${f(y)}" style="font-family:${FONTS[st.dimFont][1]};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${rot}>${label}</text>`;
     }
     return h + '</g>';
   }
