@@ -192,7 +192,7 @@
       },
     },
   };
-  const THEME_COLOURS = { wallColor: 'wall', dimColor: 'dim', dimFontColor: 'dimText', objFontColor: 'objText', objFillColor: 'objFill', objBorderColor: 'objBorder' };
+  const THEME_COLOURS = { wallColor: 'wall', dimColor: 'dim', dimFontColor: 'dimText', objFontColor: 'objText', objFillColor: 'objFill', objBorderColor: 'objBorder', titleFontColor: 'ink' };
 
   // Theme and mode are a preference of this browser, not part of the plan.
   const appearance = { theme: 'default', mode: 'system' };
@@ -287,12 +287,15 @@
   // Object settings a layer may override; everything else is plan-wide.
   const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
 
+  // Title settings can be overridden on every layer, special ones included.
+  const TITLE_SETTING_KEYS = ['titleFont', 'titleFontSize', 'titleFontColor'];
+
   // Layers are stored bottom to top. Walls (with doors and windows) and dimensions each have one fixed layer.
   function defaultLayers() {
     return [
-      { id: 'walls', kind: 'walls', name: 'Walls', visible: true, frozen: false },
+      { id: 'walls', kind: 'walls', name: 'Walls', visible: true, frozen: false, settings: {} },
       { id: 'objects', kind: 'objects', name: 'Objects', visible: true, frozen: false, settings: {} },
-      { id: 'dimensions', kind: 'dimensions', name: 'Dimensions', visible: true, frozen: false },
+      { id: 'dimensions', kind: 'dimensions', name: 'Dimensions', visible: true, frozen: false, settings: {} },
     ];
   }
 
@@ -304,14 +307,13 @@
       if (!id || seen.has(id) || (l.kind === 'objects' && (id === 'walls' || id === 'dimensions'))) continue;
       seen.add(id);
       const layer = { id, kind: l.kind, name: { walls: 'Walls', dimensions: 'Dimensions' }[l.kind], visible: l.visible !== false, frozen: l.frozen === true };
-      if (l.kind === 'objects') {
-        layer.name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : 'Layer';
-        layer.settings = {};
-        const given = l.settings && typeof l.settings === 'object' ? l.settings : {};
-        const merged = cleanSettings(Object.assign({}, settings, given));
-        for (const k of OBJ_SETTING_KEYS) if (k in given) layer.settings[k] = merged[k];
-        for (const k of COLOUR_KEYS) if (k in layer.settings && !pairSet(layer.settings[k])) delete layer.settings[k];
-      }
+      if (l.kind === 'objects') layer.name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : 'Layer';
+      layer.settings = {};
+      const given = l.settings && typeof l.settings === 'object' ? l.settings : {};
+      const merged = cleanSettings(Object.assign({}, settings, given));
+      const allowed = l.kind === 'objects' ? OBJ_SETTING_KEYS.concat(TITLE_SETTING_KEYS) : TITLE_SETTING_KEYS;
+      for (const k of allowed) if (k in given) layer.settings[k] = merged[k];
+      for (const k of COLOUR_KEYS) if (k in layer.settings && !pairSet(layer.settings[k])) delete layer.settings[k];
       out.push(layer);
     }
     const defs = defaultLayers();
@@ -325,7 +327,7 @@
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    const out = { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
+    const out = { titleFont: 'system', titleFontSize: 18, wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
     for (const k of Object.keys(THEME_COLOURS)) out[k] = { light: null, dark: null };   // colours: automatic, i.e. from the theme
     return out;
   }
@@ -386,7 +388,8 @@
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
     if (Array.isArray(src.googleFonts)) out.googleFonts = Array.from(new Set(src.googleFonts.filter(n => typeof n === 'string' && GOOGLE_FONT_NAME.test(n))));
     const knownFont = k => !!FONTS[k] || (typeof k === 'string' && k.startsWith('g:') && out.googleFonts.includes(k.slice(2)));
-    for (const k of ['dimFont', 'objFont']) if (knownFont(src[k])) out[k] = src[k];
+    for (const k of ['dimFont', 'objFont', 'titleFont']) if (knownFont(src[k])) out[k] = src[k];
+    if (Number.isFinite(src.titleFontSize)) out.titleFontSize = Math.min(Math.max(Math.round(src.titleFontSize), 6), 200);
     for (const k of ['dimFontSize', 'objFontSize']) if (Number.isFinite(src[k])) out[k] = Math.min(Math.max(Math.round(src[k]), 6), 40);
     if (Number.isFinite(src.dimDistance)) out.dimDistance = Math.min(Math.max(Math.round(src.dimDistance), 20), 500);
     return out;
@@ -404,7 +407,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, settings: defaultSettings(), layers: defaultLayers() };
   }
 
   function normalizeDoc(d) {
@@ -435,7 +438,18 @@
     for (const o of out.objects) if (!objectLayers.some(l => l.id === o.layer)) o.layer = objectLayers[0].id;
     out.marks = (d.marks || []).filter(m => [m.x, m.y, m.height].every(Number.isFinite) && m.height > 0)
       .map(m => Object.assign({ id: m.id, x: m.x, y: m.y, height: m.height }, typeof m.description === 'string' && m.description ? { description: m.description } : {}));
-    const ids = out.walls.concat(out.openings, out.objects, out.marks).map(o => +o.id || 0)
+    const note = src => typeof src.description === 'string' && src.description ? { description: src.description } : {};
+    out.titles = (d.titles || []).filter(t => Number.isFinite(t.x) && Number.isFinite(t.y) && typeof t.text === 'string').map(src => {
+      const t = Object.assign({ id: src.id, text: src.text, x: src.x, y: src.y, layer: out.layers.some(l => l.id === src.layer) ? src.layer : out.layers[out.layers.length - 1].id }, note(src));
+      // Style overrides are optional; without them the title follows its layer, then the plan.
+      if (FONTS[src.font] || (typeof src.font === 'string' && src.font.startsWith('g:') && out.settings.googleFonts.includes(src.font.slice(2)))) t.font = src.font;
+      if (Number.isFinite(src.fontSize)) t.fontSize = Math.min(Math.max(Math.round(src.fontSize), 6), 200);
+      if (pairSet(toPair(src.fontColor))) t.fontColor = toPair(src.fontColor);
+      return t;
+    });
+    out.compasses = (d.compasses || []).filter(c => [c.x, c.y, c.size].every(Number.isFinite) && c.size > 0)
+      .map(c => Object.assign({ id: c.id, x: c.x, y: c.y, size: c.size, rot: Number.isFinite(c.rot) ? c.rot : 0 }, note(c)));
+    const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
@@ -477,7 +491,8 @@
   function selLayer() {
     if (!sel) return null;
     if (sel.kind === 'object') { const o = doc.objects.find(x => x.id === sel.id); return o ? objLayer(o) : null; }
-    return specialLayer(sel.kind === 'dim' || sel.kind === 'mark' ? 'dimensions' : 'walls');
+    if (sel.kind === 'title') { const t = doc.titles.find(x => x.id === sel.id); return t ? layerById(t.layer) : null; }
+    return specialLayer(['dim', 'mark', 'compass'].includes(sel.kind) ? 'dimensions' : 'walls');
   }
   const selLocked = () => { const layer = selLayer(); return !!layer && layer.frozen; };
   const lockedNote = () => `The “${selLayer().name}” layer is frozen — unfreeze it in Layers to make changes.`;
@@ -493,11 +508,14 @@
   // Pairs that decide an object's fill colour: its own, its layer's, the plan's.
   const fillPairs = o => [o.fillColor, objLayer(o).settings.objFillColor, doc.settings.objFillColor];
   // Layer that receives new objects: the highlighted one if it holds objects, else the topmost object layer.
+  // Titles go to whichever layer is highlighted, of any kind.
+  const titleTargetLayer = () => layerById(activeLayer) || doc.layers[doc.layers.length - 1];
+
   function targetLayer() {
     const a = layerById(activeLayer);
     return a && a.kind === 'objects' ? a : doc.layers.slice().reverse().find(l => l.kind === 'objects');
   }
-  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length;
+  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length && !doc.titles.length && !doc.compasses.length;
 
   function resetHistory() {
     history = [JSON.stringify(doc)];
@@ -581,7 +599,9 @@
     const boxes = doc.walls.concat(doc.objects.map(o => {
       const d = Math.hypot(o.w, o.h);    // covers the object at any rotation
       return { x: o.x - d / 2, y: o.y - d / 2, w: d, h: d };
-    }), doc.marks.map(m => ({ x: m.x - 300, y: m.y - 150, w: 600, h: 300 })));
+    }), doc.marks.map(m => ({ x: m.x - 300, y: m.y - 150, w: 600, h: 300 })),
+      doc.titles.map(t => ({ x: t.x - 500, y: t.y - 200, w: 1000, h: 400 })),
+      doc.compasses.map(c => ({ x: c.x - c.size / 2, y: c.y - c.size / 2, w: c.size, h: c.size })));
     if (!boxes.length || !r.width) {
       view.scale = 0.08; view.ox = 80; view.oy = 80;
       return;
@@ -713,6 +733,88 @@
       }
     }
     return g;
+  }
+
+  // ---------- Titles ----------
+  // Free text on any layer. Font, size and colour come from the title itself, else its layer, else the plan.
+
+  function titleStyle(t) {
+    const own = (layerById(t.layer) || doc.layers[0]).settings || {};
+    return {
+      font: t.font || own.titleFont || doc.settings.titleFont,
+      size: t.fontSize || own.titleFontSize || doc.settings.titleFontSize,
+      colour: colourFrom([t.fontColor, own.titleFontColor, doc.settings.titleFontColor], 'ink', palMode),
+    };
+  }
+  const titlePairs = t => [t.fontColor, ((layerById(t.layer) || {}).settings || {}).titleFontColor, doc.settings.titleFontColor];
+
+  function titleBox(t) {
+    const st = titleStyle(t), [cx, cy] = S(t.x, t.y);
+    const w = Math.max(t.text.length, 1) * st.size * 0.62 + 12, hgt = st.size * 1.45;
+    return { cx, cy, x: cx - w / 2, y: cy - hgt / 2, w, h: hgt, st };
+  }
+
+  function titleSvg(t, selected) {
+    const b = titleBox(t);
+    return (selected ? `<rect x="${f(b.x)}" y="${f(b.y)}" width="${f(b.w)}" height="${f(b.h)}" fill="none" stroke="${ACCENT}" stroke-width="1.5" stroke-dasharray="5 3"/>` : '') +
+      `<text x="${f(b.cx)}" y="${f(b.cy)}" style="font-family:${fontCss(b.st.font)};font-size:${b.st.size}px;font-weight:600" text-anchor="middle" dominant-baseline="central" fill="${b.st.colour}">${esc(t.text)}</text>`;
+  }
+
+  function hitTitle(p, layerId) {
+    for (let i = doc.titles.length - 1; i >= 0; i--) {
+      const t = doc.titles[i];
+      if (t.layer !== layerId) continue;
+      const b = titleBox(t);
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return t;
+    }
+    return null;
+  }
+
+  // ---------- Compass roses ----------
+  // Lives on the dimensions layer; `size` is its diameter on the plan and rot 0 points north up.
+
+  function compassHandles(c) {
+    const r = c.size / 2, at = (lx, ly) => S(...objToWorld(c, lx, ly));
+    return [['nw', -r, -r], ['ne', r, -r], ['se', r, r], ['sw', -r, r]].map(([id, lx, ly]) => ({ id, p: at(lx, ly) }))
+      .concat({ id: 'rot', p: at(0, -r - 24 / view.scale) });
+  }
+
+  function compassSvg(c, selected) {
+    const st = planStyle(), [cx, cy] = S(c.x, c.y), R = c.size * view.scale / 2;
+    const color = selected ? ACCENT : st.dimColor, textColor = selected ? ACCENT : st.dimFontColor;
+    const w = R * 0.12, sw = selected ? 1.6 : 1.1;
+    const tri = (pts, filled) => `<path d="${poly(pts)}" fill="${filled ? color : PAPER}" stroke="${color}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+    let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${c.rot})">` +
+      `<circle r="${f(R * 0.6)}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
+    // Short diagonal points first, then the four main ones on top; each point is half filled.
+    for (const [dx, dy] of [[1, -1], [1, 1], [-1, 1], [-1, -1]]) {
+      const tip = [dx * R * 0.4, dy * R * 0.4];
+      g += tri([tip, [dx * w, 0], [0, 0]], true) + tri([tip, [0, dy * w], [0, 0]], false);
+    }
+    for (const [dx, dy, len] of [[0, -1, 0.8], [1, 0, 0.7], [0, 1, 0.7], [-1, 0, 0.7]]) {
+      const tip = [dx * R * len, dy * R * len], a = [-dy * w + dx * w, dx * w + dy * w], b = [dy * w + dx * w, -dx * w + dy * w];
+      g += tri([tip, a, [0, 0]], true) + tri([tip, b, [0, 0]], false);
+    }
+    g += `<text x="0" y="${f(-R * 0.91)}" style="font-family:${fontCss(st.dimFont)};font-size:${f(Math.max(R * 0.2, 7))}px;font-weight:700" text-anchor="middle" dominant-baseline="central" fill="${textColor}">N</text></g>`;
+    if (selected && !specialLayer('dimensions').frozen) {
+      const hs = compassHandles(c), rot = hs[hs.length - 1];
+      g += `<path d="${poly(hs.slice(0, 4).map(x => x.p))}" fill="none" stroke="${ACCENT}" stroke-width="1" stroke-dasharray="5 3"/>`;
+      g += line([(hs[0].p[0] + hs[1].p[0]) / 2, (hs[0].p[1] + hs[1].p[1]) / 2], rot.p, `stroke="${ACCENT}" stroke-width="1"`);
+      for (const hp of hs) {
+        g += hp.id === 'rot'
+          ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`
+          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
+      }
+    }
+    return g;
+  }
+
+  function hitCompass(w) {
+    for (let i = doc.compasses.length - 1; i >= 0; i--) {
+      const c = doc.compasses[i];
+      if (Math.hypot(w.x - c.x, w.y - c.y) <= c.size / 2) return c;
+    }
+    return null;
   }
 
   // ---------- Ceiling height marks ----------
@@ -971,10 +1073,12 @@
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
+        for (const c of doc.compasses) h.push(compassSvg(c, !!sel && sel.kind === 'compass' && sel.id === c.id));
         for (const m of doc.marks) h.push(markSvg(m, !!sel && sel.kind === 'mark' && sel.id === m.id));
       } else {
         for (const o of doc.objects) if (o.layer === layer.id) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
       }
+      for (const t of doc.titles) if (t.layer === layer.id) h.push(titleSvg(t, !!sel && sel.kind === 'title' && sel.id === t.id));
     }
     return h.join('');
   }
@@ -1028,6 +1132,8 @@
     if (sel.kind === 'opening') return doc.openings.find(o => o.id === sel.id) || null;
     if (sel.kind === 'object') return doc.objects.find(o => o.id === sel.id) || null;
     if (sel.kind === 'mark') return doc.marks.find(m => m.id === sel.id) || null;
+    if (sel.kind === 'title') return doc.titles.find(t => t.id === sel.id) || null;
+    if (sel.kind === 'compass') return doc.compasses.find(c => c.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
     return walls.segments.find(s => s.key === sel.key) || null;
   }
@@ -1069,27 +1175,29 @@
   const dimSettingRows = c => c.choice('dimEnds', 'Line ends', Object.entries(DIM_ENDS)) + c.colour('dimColor', 'Line colour') +
     c.choice('dimFont', 'Font', fontChoices()) + c.number('dimFontSize', 'Font size', 6, 40, 'px') + c.colour('dimFontColor', 'Font colour') +
     c.number('dimDistance', 'Distance from wall', 20, 500, '%');
+  const titleSettingRows = c => c.choice('titleFont', 'Font', fontChoices()) + c.number('titleFontSize', 'Font size', 6, 200, 'px') + c.colour('titleFontColor', 'Font colour');
   const objectSettingRows = c => c.choice('objFont', 'Font', fontChoices()) + c.number('objFontSize', 'Font size', 6, 40, 'px') +
     c.colour('objFontColor', 'Font colour') + c.choice('objFillStyle', 'Fill style', Object.entries(FILLS)) + c.colour('objFillColor', 'Fill colour') +
     c.number('objHatchSpacing', 'Hatch spacing', 3, 60, 'px') + c.number('objBorderSize', 'Border size', 0, 10, 'px', 0.5) + c.colour('objBorderColor', 'Border colour');
 
   function layerPanelHtml(layer) {
-    const done = '<div class="row"><button data-act="closeLayerPanel" class="primary">Done</button></div>';
+    const own = Object.keys(layer.settings).length;
+    // Layer-level controls: values shown are the effective ones, rows set on this layer are marked.
+    const lc = settingControls(Object.assign({}, doc.settings, layer.settings), 'data-lset', new Set(Object.keys(layer.settings)),
+      key => ({ own: layer.settings[key], chain: [layer.settings[key], doc.settings[key]] }));
+    const titles = '<h4>Titles on this layer</h4>' + titleSettingRows(lc);
+    const tail = (own ? `<p>● ${own} setting${own > 1 ? 's' : ''} set on this layer; the rest follow the plan settings.</p>`
+        : '<p>Change a value marked for this layer to set it here only; otherwise the plan settings apply.</p>') +
+      `<div class="row"><button data-act="clearLayerSettings" ${own ? '' : 'disabled'}>Use plan settings</button><button data-act="closeLayerPanel" class="primary">Done</button></div>`;
     if (layer.kind === 'walls') {
-      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(doc.settings, 'data-set', null, planPairs)) + done;
+      return '<h3>Walls layer</h3><p>Holds the walls with their doors, doorways and windows.</p>' + wallSettingRows(settingControls(doc.settings, 'data-set', null, planPairs)) + titles + tail;
     }
     if (layer.kind === 'dimensions') {
-      return '<h3>Dimensions layer</h3><p>Holds all dimension lines.</p>' + dimSettingRows(settingControls(doc.settings, 'data-set', null, planPairs)) + done;
+      return '<h3>Dimensions layer</h3><p>Holds dimension lines, ceiling height marks and compass roses.</p>' + dimSettingRows(settingControls(doc.settings, 'data-set', null, planPairs)) + titles + tail;
     }
-    const own = Object.keys(layer.settings).length;
     return '<h3>Layer</h3>' +
       `<label class="field">Name<input type="text" data-lname value="${esc(layer.name)}"></label>` +
-      '<h4>Object defaults on this layer</h4>' +
-      objectSettingRows(settingControls(Object.assign({}, doc.settings, layer.settings), 'data-lset', new Set(Object.keys(layer.settings)),
-        key => ({ own: layer.settings[key], chain: [layer.settings[key], doc.settings[key]] }))) +
-      (own ? `<p>● ${own} setting${own > 1 ? 's' : ''} set on this layer; the rest follow the plan settings.</p>`
-        : '<p>This layer follows the plan settings. Change a value here to set it for this layer only.</p>') +
-      `<div class="row"><button data-act="clearLayerSettings" ${own ? '' : 'disabled'}>Use plan settings</button><button data-act="closeLayerPanel" class="primary">Done</button></div>`;
+      '<h4>Object defaults on this layer</h4>' + objectSettingRows(lc) + titles + tail;
   }
 
   // The Layers list: topmost layer first, with visibility and freeze toggles per row.
@@ -1147,7 +1255,7 @@
       // Objects are kept: they move to the nearest object layer below, or above if there is none.
       const below = doc.layers.slice(0, i).reverse().find(l => l.kind === 'objects');
       const home = below || others[0];
-      for (const o of doc.objects) if (o.layer === layer.id) o.layer = home.id;
+      for (const o of doc.objects.concat(doc.titles)) if (o.layer === layer.id) o.layer = home.id;
       doc.layers.splice(i, 1);
       activeLayer = home.id;
     }
@@ -1161,8 +1269,8 @@
   // Selector that finds the same control again after the panel has been rebuilt.
   function controlKey(el) {
     const side = el.dataset.side ? `[data-side="${el.dataset.side}"]` : '';
-    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
-    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont']) if (k in el.dataset) return `[data-${k}]`;
+    for (const k of ['k', 'set', 'lset', 'ofill', 'oflag', 'tcol']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
+    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer']) if (k in el.dataset) return `[data-${k}]`;
     return null;
   }
 
@@ -1199,6 +1307,7 @@
         '<h4>Walls</h4>' + wallSettingRows(c) +
         '<h4>Dimensions</h4>' + dimSettingRows(c) +
         '<h4>Objects</h4>' + objectSettingRows(c) +
+        '<h4>Titles</h4>' + titleSettingRows(c) +
         '<p>Object settings can also be set per layer (select a layer, then the cog).</p>' +
         '<h4>Google Fonts</h4>' +
         '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
@@ -1209,6 +1318,10 @@
         '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
       h = `<h3>New ${TITLES[tool].toLowerCase()}</h3>${openingFields(tool, defaults[tool])}<p>Click on a wall to place it. The side of the wall you click on sets the ${tool === 'window' ? 'sill side' : 'opening direction'}.</p>`;
+    } else if (tool === 'title') {
+      h = `<h3>New title</h3><p>Click on the plan to place a title. It goes on the highlighted layer: “${esc(titleTargetLayer().name)}”.</p>`;
+    } else if (tool === 'compass') {
+      h = '<h3>New compass rose</h3><p>Click on the plan to place it. It belongs to the Dimensions layer; turn it so that N points to north.</p>';
     } else if (tool === 'mark') {
       h = '<h3>New ceiling height mark</h3>' + field('Ceiling height', 'height', defaults.mark.height) +
         '<p>Click on the plan to place the mark. It belongs to the Dimensions layer and uses the dimension font and colours.</p>';
@@ -1216,6 +1329,26 @@
       h = '<h3>Object</h3><p>Drag to draw a rectangle, or click to drop a standard one. Use it for furniture, appliances and the like.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'wall') {
       h = '<h3>Wall</h3><p>Drag to draw a rectangle. Rectangles that touch or overlap merge into one wall.</p><p>Hold Alt to draw without snapping.</p>';
+    } else if (sel && sel.kind === 'title') {
+      const inherited = Object.assign({}, doc.settings, (layerById(obj.layer) || {}).settings);
+      const fontName = (fontChoices().find(([k]) => k === inherited.titleFont) || ['', 'System'])[1];
+      h = '<h3>Title</h3>' +
+        `<label class="field">Text<input type="text" data-ttext value="${esc(obj.text)}"></label>` +
+        `<label class="field">Layer<select data-tlayer>${doc.layers.slice().reverse().map(l => `<option value="${esc(l.id)}"${l.id === obj.layer ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` +
+        field('X', 'x', obj.x) + field('Y', 'y', obj.y) +
+        `<label class="field">Font<select data-tfont><option value="">Default (${esc(fontName)})</option>${fontChoices().map(([v, t]) => `<option value="${esc(v)}"${obj.font === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` +
+        `<label class="field">Font size<input type="number" min="6" max="200" data-tsize placeholder="${inherited.titleFontSize}" value="${obj.fontSize || ''}"><span>px</span></label>` +
+        colourRow('Font colour', 'data-tcol', 'fontColor', obj.fontColor, titlePairs(obj), 'ink') +
+        (obj.font || obj.fontSize || obj.fontColor ? '<div class="row"><button data-act="defaultTitleStyle">Use default style</button></div>' : '<p>Using the title style of its layer.</p>') +
+        descriptionField() +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
+    } else if (sel && sel.kind === 'compass') {
+      h = '<h3>Compass rose</h3>' + field('X', 'x', obj.x) + field('Y', 'y', obj.y) + field('Size', 'size', obj.size) +
+        `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
+        '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
+        '<p>Drag to move, drag a corner to resize and the round handle to rotate (Alt for free angle).</p>' +
+        descriptionField() +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'mark') {
       h = '<h3>Ceiling height mark</h3>' + field('Ceiling height', 'height', obj.height) + field('X', 'x', obj.x) + field('Y', 'y', obj.y) +
         '<p>Drag or use the arrow keys to move it.</p>' +
@@ -1345,7 +1478,24 @@
       if (text || sel.kind === 'object') target.description = text; else delete target.description;
       return 'doc';
     }
-    if ('rot' in ds && object) { object.rot = normAngle(Number(el.value) || 0); return 'doc'; }
+    if ('rot' in ds && sel && (sel.kind === 'object' || sel.kind === 'compass')) {
+      const turned = selectedObject();
+      if (!turned) return null;
+      turned.rot = normAngle(Number(el.value) || 0);
+      return 'doc';
+    }
+    const title = sel && sel.kind === 'title' ? selectedObject() : null;
+    if (title) {
+      if ('ttext' in ds) { title.text = live ? el.value : el.value.trim() || 'Title'; return 'doc'; }
+      if ('tlayer' in ds) { title.layer = el.value; return 'doc'; }
+      if ('tfont' in ds) { if (el.value) title.font = el.value; else delete title.font; return 'doc'; }
+      if ('tsize' in ds) {
+        const size = Math.round(Number(el.value) || 0);
+        if (size > 0) title.fontSize = Math.min(Math.max(size, 6), 200); else delete title.fontSize;
+        return 'doc';
+      }
+      if (ds.tcol) { title.fontColor = withSide(title.fontColor, el); return 'doc'; }
+    }
     if (ds.set) { applySetting(el); return 'doc'; }
     if (ds.app) {
       appearance[ds.app] = el.value;
@@ -1439,6 +1589,7 @@
       setHidden(allDims().filter(d => d.comp === obj.comp).map(d => d.key), act === 'hideWallDims');
     }
     if (act === 'defaultFill') { delete obj.fillStyle; delete obj.fillColor; }
+    if (act === 'defaultTitleStyle') { delete obj.font; delete obj.fontSize; delete obj.fontColor; }
     if (act === 'autoColour') {
       // Back to automatic for one side; an override with nothing left set is dropped altogether.
       const { level, key, side } = e.target.dataset;
@@ -1466,6 +1617,8 @@
     if (sel.kind === 'wall') doc.walls = doc.walls.filter(w => w.id !== sel.id);
     else if (sel.kind === 'object') doc.objects = doc.objects.filter(o => o.id !== sel.id);
     else if (sel.kind === 'mark') doc.marks = doc.marks.filter(m => m.id !== sel.id);
+    else if (sel.kind === 'title') doc.titles = doc.titles.filter(t => t.id !== sel.id);
+    else if (sel.kind === 'compass') doc.compasses = doc.compasses.filter(c => c.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
     else if (sel.kind === 'dim') {
       const dim = selectedObject();
@@ -1485,6 +1638,8 @@
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     mark: 'Click to place a ceiling height mark · Esc to finish',
+    title: 'Click to place a title on the highlighted layer · Esc to cancel',
+    compass: 'Click to place a compass rose · Esc to cancel',
     door: 'Click a wall to place a door · Esc to finish',
     doorway: 'Click a wall to place a doorway · Esc to finish',
     window: 'Click a wall to place a window · Esc to finish',
@@ -1527,7 +1682,7 @@
       rebuild();
       remapHidden(dx, dy);
       commit();
-    } else if (sel.kind === 'object' || sel.kind === 'mark') {
+    } else if (['object', 'mark', 'title', 'compass'].includes(sel.kind)) {
       obj.x += dx; obj.y += dy;
       commit();
     } else if (sel.kind === 'opening') {
@@ -1557,12 +1712,22 @@
       svg.classList.add('panning');
       return;
     }
-    const toolLayer = tool === 'object' ? targetLayer() : tool === 'mark' ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
+    const toolLayer = tool === 'object' ? targetLayer() : tool === 'title' ? titleTargetLayer()
+      : tool === 'mark' || tool === 'compass' ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
     if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
       const a = snapPoint(w, e);
       drag = { kind: 'newwall', a, b: a };
       return;
+    }
+    if (tool === 'title' || tool === 'compass') {
+      const base = { id: doc.nextId++, x: snapv(w.x, e), y: snapv(w.y, e) };
+      const made = tool === 'title' ? Object.assign(base, { text: 'Title', layer: titleTargetLayer().id }) : Object.assign(base, { size: 1000, rot: 0 });
+      (tool === 'title' ? doc.titles : doc.compasses).push(made);
+      const kind = tool;
+      setTool('select');
+      sel = { kind, id: made.id };
+      return commit();
     }
     if (tool === 'mark') {
       doc.marks.push({ id: doc.nextId++, x: snapv(w.x, e), y: snapv(w.y, e), height: defaults.mark.height });
@@ -1591,6 +1756,14 @@
         return;
       }
     }
+    if (sel && sel.kind === 'compass' && !selLocked()) {
+      const c = selectedObject();
+      const hp = c && compassHandles(c).find(h => Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
+      if (hp) {
+        drag = hp.id === 'rot' ? { kind: 'rotateobject', o: c } : { kind: 'resizecompass', o: c };
+        return;
+      }
+    }
     if (sel && sel.kind === 'object' && !selLocked()) {
       const obj = selectedObject();
       const hp = obj && objectHandles(obj).find(h => Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
@@ -1604,6 +1777,12 @@
     for (const layer of doc.layers.slice().reverse()) {
       if (!layer.visible) continue;
       const free = !layer.frozen;
+      const title = hitTitle(p, layer.id);   // titles sit on top of everything else in their layer
+      if (title) {
+        sel = { kind: 'title', id: title.id };
+        if (free) drag = { kind: 'moveobject', o: title, w0: w, orig: { x: title.x, y: title.y } };
+        return renderAll();
+      }
       if (layer.kind === 'objects') {
         const thing = hitObject(w, layer.id);
         if (thing) {
@@ -1612,6 +1791,12 @@
           return renderAll();
         }
       } else if (layer.kind === 'dimensions') {
+        const compass = hitCompass(w);
+        if (compass) {
+          sel = { kind: 'compass', id: compass.id };
+          if (free) drag = { kind: 'moveobject', o: compass, w0: w, orig: { x: compass.x, y: compass.y } };
+          return renderAll();
+        }
         const mark = hitMark(p);
         if (mark) {
           sel = { kind: 'mark', id: mark.id };
@@ -1674,6 +1859,10 @@
       const step = e.altKey ? 1 : 15;
       const ang = Math.atan2(w.y - drag.o.y, w.x - drag.o.x) * 180 / Math.PI + 90;
       drag.o.rot = normAngle(Math.round(ang / step) * step);
+    } else if (drag.kind === 'resizecompass') {
+      // The centre stays put; the dragged corner sets the diameter.
+      const l = objToLocal(drag.o, w);
+      drag.o.size = Math.max(100, snapv(2 * Math.max(Math.abs(l.x), Math.abs(l.y)), e));
     } else if (drag.kind === 'resizeobject') {
       // The side opposite the dragged handle stays where it is, in the object's own rotated frame.
       const o0 = drag.orig, l = objToLocal(o0, w);
@@ -1741,7 +1930,7 @@
       if (d.dx || d.dy) remapHidden(d.dx, d.dy);
       return commit();
     }
-    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject', 'movemark'].includes(d.kind)) return commit();
+    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject', 'movemark', 'resizecompass'].includes(d.kind)) return commit();
     render();
   }
   svg.addEventListener('pointerup', endDrag);
@@ -1776,11 +1965,11 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && ['wall', 'opening', 'object', 'mark'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && ['wall', 'opening', 'object', 'mark', 'title', 'compass'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', h: 'mark' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', h: 'mark', t: 'title', c: 'compass' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
@@ -2047,7 +2236,8 @@
   // Google fonts must travel inside the SVG: an SVG drawn as an image cannot load anything external.
   async function embeddedFontCss(body) {
     const used = new Set();
-    const keys = [doc.settings.dimFont, doc.settings.objFont].concat(doc.layers.map(l => l.settings && l.settings.objFont));
+    const keys = [doc.settings.dimFont, doc.settings.objFont, doc.settings.titleFont]
+      .concat(doc.layers.flatMap(l => l.settings ? [l.settings.objFont, l.settings.titleFont] : []), doc.titles.map(t => t.font));
     for (const k of keys) if (k && k.startsWith('g:')) used.add(k.slice(2));
     if (!used.size) return '';
     const chars = Array.from(new Set(body.replace(/<[^>]*>/g, ''))).map(c => c.codePointAt(0));
