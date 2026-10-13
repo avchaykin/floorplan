@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Floorplan</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --border: #d5d8dd;
+      --text: #1f2328;
+      --muted: #6b7280;
+      --accent: #1a73e8;
+      --warn: #b45309;
+      --err: #c62828;
+      --ok: #2e7d32;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; margin: 0; }
+
+    body {
+      display: grid;
+      grid-template: 44px 1fr 26px / 96px 1fr 248px;
+      grid-template-areas: "top top top" "tools stage panel" "status status status";
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    button, select, input { font: inherit; color: inherit; }
+
+    button {
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      cursor: pointer;
+    }
+    button:hover { background: #eef1f5; }
+    button:disabled { opacity: .45; cursor: default; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { color: var(--err); }
+
+    select, input[type=text], input[type=number] {
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    #topbar {
+      grid-area: top;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .brand { font-size: 15px; margin-right: 6px; }
+    .spacer { flex: 1; }
+    .inline { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+    #planSelect { max-width: 200px; }
+    #saveStatus { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+    #saveStatus.ok { color: var(--ok); }
+    #saveStatus.warn { color: var(--warn); }
+    #saveStatus.err { color: var(--err); }
+
+    #tools {
+      grid-area: tools;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 8px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+    }
+    #tools button { display: flex; justify-content: space-between; align-items: center; padding: 7px 8px; }
+    #tools button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    kbd { font: 10px ui-monospace, monospace; opacity: .6; }
+
+    #stage { grid-area: stage; position: relative; background: #fff; min-width: 0; min-height: 0; }
+    #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+    #canvas.tool-select { cursor: default; }
+    #canvas.tool-wall, #canvas.tool-door, #canvas.tool-doorway, #canvas.tool-window { cursor: crosshair; }
+    #canvas.panning { cursor: grabbing; }
+    #canvas text { font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+    #side {
+      grid-area: panel;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+    }
+    #panel { flex: 1; min-height: 0; padding: 12px; overflow-y: auto; }
+    #calc { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
+    #calcInput { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+    #calcResult { margin: 4px 2px 8px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+    #calcResult.err { color: var(--muted); font-weight: 400; min-height: 0; }
+    #calcKeys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    #calcKeys button { padding: 5px 0; }
+    #calcKeys button.primary:hover { background: var(--accent); filter: brightness(1.1); }
+    #panel h3 { margin: 0 0 10px; font-size: 13px; }
+    #panel p { margin: 0 0 10px; color: var(--muted); }
+    #panel label.field { display: grid; grid-template-columns: 1fr 78px 22px; align-items: center; gap: 6px; margin-bottom: 6px; }
+    #panel label.field input { width: 100%; text-align: right; }
+    #panel label.field span { color: var(--muted); }
+    #panel label.check { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+    #panel .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+    #panel .row button { flex: 1 1 auto; }
+    .hidden-dims { list-style: none; margin: 0 0 10px; padding: 0; border: 1px solid var(--border); border-radius: 6px; max-height: 50vh; overflow-y: auto; }
+    .hidden-dims li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 4px 4px 8px; }
+    .hidden-dims li + li { border-top: 1px solid var(--border); }
+    .hidden-dims li:hover { background: #eef4fe; }
+    .hidden-dims button { padding: 2px 8px; }
+
+    #statusbar {
+      grid-area: status;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      padding: 0 12px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    #coords { min-width: 170px; font-variant-numeric: tabular-nums; }
+
+    dialog { border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 300px; }
+    dialog::backdrop { background: rgba(0, 0, 0, .3); }
+    dialog h3 { margin: 0 0 12px; }
+    dialog label { display: grid; gap: 4px; }
+    dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 14px 0 0; }
+    .err { color: var(--err); min-height: 1.4em; margin: 6px 0 0; }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 44px;
+      transform: translateX(-50%);
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: #1f2328;
+      color: #fff;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <header id="topbar">
+    <strong class="brand">Floorplan</strong>
+    <button id="btnFolder" title="Choose the folder where plans are stored">Open folder…</button>
+    <select id="planSelect" title="Plan file" disabled></select>
+    <button id="btnNew">New plan</button>
+    <span id="saveStatus"></span>
+    <span class="spacer"></span>
+    <button id="btnUndo" title="Undo (⌘Z)">Undo</button>
+    <button id="btnRedo" title="Redo (⇧⌘Z)">Redo</button>
+    <label class="inline">Units
+      <select id="unitSelect">
+        <option value="mm">mm</option>
+        <option value="cm">cm</option>
+        <option value="m">m</option>
+      </select>
+    </label>
+    <label class="inline">Snap
+      <select id="snapSelect"></select>
+    </label>
+    <button id="btnZoomOut" title="Zoom out">−</button>
+    <button id="btnZoomIn" title="Zoom in">+</button>
+    <button id="btnFit" title="Fit plan to window">Fit</button>
+  </header>
+
+  <nav id="tools">
+    <button data-tool="select" title="Select / move (V)">Select <kbd>V</kbd></button>
+    <button data-tool="wall" title="Draw wall rectangle (W)">Wall <kbd>W</kbd></button>
+    <button data-tool="door" title="Add door (D)">Door <kbd>D</kbd></button>
+    <button data-tool="doorway" title="Add doorway without door (O)">Doorway <kbd>O</kbd></button>
+    <button data-tool="window" title="Add window (N)">Window <kbd>N</kbd></button>
+  </nav>
+
+  <main id="stage">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+  </main>
+
+  <aside id="side">
+    <div id="panel"></div>
+    <div id="calc">
+      <input id="calcInput" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Calculator" aria-label="Calculator expression">
+      <div id="calcResult">&nbsp;</div>
+      <div id="calcKeys">
+        <button data-c="clear">C</button><button data-c="(">(</button><button data-c=")">)</button><button data-c="back">⌫</button>
+        <button data-c="7">7</button><button data-c="8">8</button><button data-c="9">9</button><button data-c="÷">÷</button>
+        <button data-c="4">4</button><button data-c="5">5</button><button data-c="6">6</button><button data-c="×">×</button>
+        <button data-c="1">1</button><button data-c="2">2</button><button data-c="3">3</button><button data-c="−">−</button>
+        <button data-c="0">0</button><button data-c=".">.</button><button data-c="equals" class="primary">=</button><button data-c="+">+</button>
+      </div>
+    </div>
+  </aside>
+
+  <footer id="statusbar">
+    <span id="coords"></span>
+    <span id="hint"></span>
+  </footer>
+
+  <dialog id="newDlg">
+    <form method="dialog">
+      <h3>New plan</h3>
+      <label>File name <input id="newName" type="text" value="floorplan" autocomplete="off" required></label>
+      <p id="newErr" class="err"></p>
+      <menu>
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button id="newOk" value="ok">Create</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
