@@ -344,7 +344,7 @@
   let hiddenDimsOpen = false;   // whether the hidden-dimensions list in the side panel is unfolded
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
   let ghost = null;     // opening preview while a door/window tool is active
-  let snap = 50;
+  let snap = 10;
   let spaceDown = false;
   const view = { scale: 0.08, ox: 80, oy: 80 };   // screen px = mm * scale + offset
 
