@@ -1662,7 +1662,7 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) +
         (obj.shape === 'polygon'
-          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (hold Shift to move it along one axis only); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
+          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (press Shift to line it up with a neighbouring corner and slide along that line); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
             `<div class="row"><button data-act="delVertex" ${vertexSel && vertexSel.id === obj.id && obj.points.length > 3 ? '' : 'disabled'}>Delete selected corner</button></div>`
           : field('Width', 'w', obj.w) + field('Height', 'h', obj.h)) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
@@ -2055,6 +2055,19 @@
     return pt;
   }
 
+  // Which coordinate of a polygon corner to pin, and to what, so that it lines up with the nearer of its
+  // two neighbours: the smallest of the four x/y gaps decides.
+  function alignToNeighbour(pt, prev, next) {
+    let best = null;
+    for (const nb of [prev, next]) {
+      for (const axis of [0, 1]) {
+        const gap = Math.abs(pt[axis] - nb[axis]);
+        if (!best || gap < best.gap) best = { axis, value: nb[axis], gap };
+      }
+    }
+    return best;
+  }
+
   // With Shift held a move keeps to one axis: the smaller of the two offsets is dropped.
   const axisLock = (dx, dy, e) => !e.shiftKey ? [dx, dy] : Math.abs(dx) >= Math.abs(dy) ? [dx, 0] : [0, dy];
 
@@ -2175,7 +2188,7 @@
           obj.points.splice(++index, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
         }
         vertexSel = { id: obj.id, index };
-        drag = { kind: 'movevertex', o: obj, index, start: objToWorld(obj, obj.points[index][0], obj.points[index][1]) };
+        drag = { kind: 'movevertex', o: obj, index, lock: null };
         return renderAll();
       }
       if (hp) {
@@ -2302,10 +2315,13 @@
       const [dx, dy] = axisLock(snapv(w.x - drag.w0.x, e), snapv(w.y - drag.w0.y, e), e), o0 = drag.orig;
       Object.assign(drag.o, { x1: o0.x1 + dx, y1: o0.y1 + dy, x2: o0.x2 + dx, y2: o0.y2 + dy });
     } else if (drag.kind === 'movevertex') {
-      // The corner follows the pointer; with Shift only along one axis from where it started.
-      const [dx, dy] = axisLock(snapv(w.x, e) - drag.start[0], snapv(w.y, e) - drag.start[1], e);
-      const l = objToLocal(drag.o, { x: drag.start[0] + dx, y: drag.start[1] + dy });
-      drag.o.points[drag.index] = [l.x, l.y];
+      // The corner follows the pointer. Pressing Shift lines it up with a neighbouring corner and then
+      // holds that line, so the corner only slides along it until Shift is released.
+      const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) }), pts = drag.o.points, n = pts.length, pt = [l.x, l.y];
+      if (!e.shiftKey) drag.lock = null;
+      else if (!drag.lock) drag.lock = alignToNeighbour(pt, pts[(drag.index + n - 1) % n], pts[(drag.index + 1) % n]);
+      if (drag.lock) pt[drag.lock.axis] = drag.lock.value;
+      pts[drag.index] = pt;
     } else if (drag.kind === 'resizecompass') {
       // The centre stays put; the dragged corner sets the diameter.
       const l = objToLocal(drag.o, w);
