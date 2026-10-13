@@ -165,16 +165,16 @@
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100 };
+    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a' };
   }
 
   function cleanSettings(raw) {
     const out = defaultSettings(), src = raw || {};
     const colour = v => /^#[0-9a-f]{6}$/i.test(v);
-    for (const k of ['wallColor', 'dimColor', 'dimFontColor']) if (colour(src[k])) out[k] = src[k];
+    for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor']) if (colour(src[k])) out[k] = src[k];
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
-    if (FONTS[src.dimFont]) out.dimFont = src.dimFont;
-    if (Number.isFinite(src.dimFontSize)) out.dimFontSize = Math.min(Math.max(Math.round(src.dimFontSize), 6), 40);
+    for (const k of ['dimFont', 'objFont']) if (FONTS[src[k]]) out[k] = src[k];
+    for (const k of ['dimFontSize', 'objFontSize']) if (Number.isFinite(src[k])) out[k] = Math.min(Math.max(Math.round(src[k]), 6), 40);
     if (Number.isFinite(src.dimDistance)) out.dimDistance = Math.min(Math.max(Math.round(src.dimDistance), 20), 500);
     return out;
   }
@@ -411,13 +411,13 @@
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
       `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="#fff" fill-opacity=".85" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
     // Name and size, as many lines as fit; kept upright when the object is turned over.
-    const size = st.dimFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
+    const size = st.objFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
     const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * 0.6 + 6);
     const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
     const flip = o.rot > 90 && o.rot <= 270 ? ' transform="rotate(180)"' : '';
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${FONTS[st.dimFont][1]};font-size:${size}px" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.dimFontColor}"${flip}>${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${FONTS[st.objFont][1]};font-size:${size}px" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${flip}>${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected) {
@@ -729,6 +729,10 @@
         row('Font size', number('dimFontSize', 6, 40), 'px') +
         row('Font colour', colour('dimFontColor'), '') +
         row('Distance from wall', number('dimDistance', 20, 500), '%') +
+        '<h4>Objects</h4>' +
+        row('Font', choice('objFont', Object.entries(FONTS).map(([k, v]) => [k, v[0]]))) +
+        row('Font size', number('objFontSize', 6, 40), 'px') +
+        row('Font colour', colour('objFontColor'), '') +
         '<p>Settings are saved with this plan. New plans start with the same settings.</p>' +
         '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
