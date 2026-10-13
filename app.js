@@ -202,17 +202,20 @@
     };
   }
 
+  const FILLS = { solid: 'Solid', diagLeft: 'Diagonal left ╲', diagRight: 'Diagonal right ╱', cross: 'Cross-hatch' };
+  const isColour = v => /^#[0-9a-f]{6}$/i.test(v);
   const DIM_ENDS = { arrow: 'Arrows, filled', vNarrow: 'V-arrows, narrow', vWide: 'V-arrows, wide', tick: 'Ticks', dot: 'Dots', none: 'None' };
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [] };
+    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff' };
   }
 
   function cleanSettings(raw) {
     const out = defaultSettings(), src = raw || {};
     const colour = v => /^#[0-9a-f]{6}$/i.test(v);
-    for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor']) if (colour(src[k])) out[k] = src[k];
+    for (const k of ['wallColor', 'dimColor', 'dimFontColor', 'objFontColor', 'objFillColor']) if (colour(src[k])) out[k] = src[k];
+    if (FILLS[src.objFillStyle]) out.objFillStyle = src.objFillStyle;
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
     if (Array.isArray(src.googleFonts)) out.googleFonts = Array.from(new Set(src.googleFonts.filter(n => typeof n === 'string' && GOOGLE_FONT_NAME.test(n))));
     const knownFont = k => !!FONTS[k] || (typeof k === 'string' && k.startsWith('g:') && out.googleFonts.includes(k.slice(2)));
@@ -243,8 +246,16 @@
     out.openings = (d.openings || []).filter(o => OPENING_TOOLS.includes(o.type) && Number.isFinite(o.x) && Number.isFinite(o.y));
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
     for (const [k, v] of Object.entries(d.realDimensions || {})) if (Number.isFinite(v) && v > 0) out.realDimensions[k] = v;
-    out.objects = (d.objects || []).filter(o => [o.x, o.y, o.w, o.h].every(Number.isFinite) && o.w > 0 && o.h > 0)
-      .map(o => ({ id: o.id, name: typeof o.name === 'string' ? o.name : '', description: typeof o.description === 'string' ? o.description : '', x: o.x, y: o.y, w: o.w, h: o.h, rot: Number.isFinite(o.rot) ? o.rot : 0 }));
+    out.objects = (d.objects || []).filter(o => [o.x, o.y, o.w, o.h].every(Number.isFinite) && o.w > 0 && o.h > 0).map(src => {
+      const o = {
+        id: src.id, name: typeof src.name === 'string' ? src.name : '', description: typeof src.description === 'string' ? src.description : '',
+        x: src.x, y: src.y, w: src.w, h: src.h, rot: Number.isFinite(src.rot) ? src.rot : 0,
+      };
+      // Fill overrides are optional; without them the object follows the plan settings.
+      if (FILLS[src.fillStyle]) o.fillStyle = src.fillStyle;
+      if (isColour(src.fillColor)) o.fillColor = src.fillColor;
+      return o;
+    });
     const ids = out.walls.concat(out.openings, out.objects).map(o => +o.id || 0);
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
@@ -448,18 +459,32 @@
     return null;
   }
 
+  // Object interior: a plain colour, or hatch lines in that colour over white. The hatch turns with the object.
+  function objectFillSvg(o, pw, ph) {
+    const style = o.fillStyle || doc.settings.objFillStyle, color = o.fillColor || doc.settings.objFillColor;
+    const box = `x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}"`;
+    if (style === 'solid') return `<rect ${box} fill="${color}" fill-opacity=".85"/>`;
+    const id = 'objfill-' + (o.id || 'new');
+    const left = 'M0 0L8 8M-2 6L2 10M6 -2L10 2', right = 'M0 8L8 0M-2 2L2 -2M6 10L10 6';
+    const d = style === 'diagLeft' ? left : style === 'diagRight' ? right : left + right;
+    return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="8" height="8"><path d="${d}" stroke="${color}" stroke-width="1.2" fill="none"/></pattern></defs>` +
+      `<rect ${box} fill="#fff" fill-opacity=".85"/><rect ${box} fill="url(#${id})"/>`;
+  }
+
   function objectSvg(o, selected, preview) {
     const st = doc.settings, [cx, cy] = S(o.x, o.y), pw = o.w * view.scale, ph = o.h * view.scale;
     const stroke = selected || preview ? ACCENT : INK;
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
-      `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="#fff" fill-opacity=".85" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
+      objectFillSvg(o, pw, ph) +
+      `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="none" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
+    const hatched = (o.fillStyle || st.objFillStyle) !== 'solid';
     // Name and size, as many lines as fit; the text always turns with the object.
     const size = st.objFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
     const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * (t === o.name ? 0.66 : 0.6) + 6);
     const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && o.name ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}">${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && o.name ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="#fff" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected) {
@@ -775,6 +800,8 @@
         row('Font', choice('objFont', fontChoices())) +
         row('Font size', number('objFontSize', 6, 40), 'px') +
         row('Font colour', colour('objFontColor'), '') +
+        row('Fill style', choice('objFillStyle', Object.entries(FILLS))) +
+        row('Fill colour', colour('objFillColor'), '') +
         '<h4>Google Fonts</h4>' +
         '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
         (st.googleFonts.length ? '<ul class="hidden-dims">' + st.googleFonts.map(n =>
@@ -793,6 +820,9 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
+        `<label class="field">Fill style<select data-ofill="fillStyle"><option value="">Default (${FILLS[doc.settings.objFillStyle]})</option>${Object.entries(FILLS).map(([v, t]) => `<option value="${v}"${obj.fillStyle === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` +
+        `<label class="field">Fill colour<input type="color" data-ofill="fillColor" value="${obj.fillColor || doc.settings.objFillColor}"><span></span></label>` +
+        (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill from Settings.</p>') +
         `<label class="note">Description<textarea data-desc rows="4" placeholder="Notes about this object; not shown on the plan">${esc(obj.description || '')}</textarea></label>` +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
@@ -841,7 +871,12 @@
     doc.settings = cleanSettings(Object.assign({}, doc.settings, { [key]: value }));
   }
   // Live preview while a colour is being picked or a number typed; committed on change.
+  function applyObjectFill(input) {
+    const o = selectedObject(), key = input.dataset.ofill;
+    if (input.value) o[key] = input.value; else delete o[key];
+  }
   panel.addEventListener('input', e => {
+    if (e.target.dataset.ofill && sel && sel.kind === 'object') { applyObjectFill(e.target); return render(); }
     if (!e.target.dataset.set) return;
     applySetting(e.target);
     render();
@@ -850,6 +885,10 @@
   const normAngle = a => ((Math.round(a) % 360) + 360) % 360;
 
   panel.addEventListener('change', e => {
+    if (e.target.dataset.ofill && sel && sel.kind === 'object') {
+      applyObjectFill(e.target);
+      return commit();
+    }
     if (sel && sel.kind === 'object' && ['name', 'rot', 'desc'].some(k => k in e.target.dataset)) {
       const o = selectedObject();
       if ('name' in e.target.dataset) o.name = e.target.value.trim();
@@ -917,6 +956,7 @@
     if (act === 'showWallDims' || act === 'hideWallDims') {
       setHidden(allDims().filter(d => d.comp === obj.comp).map(d => d.key), act === 'hideWallDims');
     }
+    if (act === 'defaultFill') { delete obj.fillStyle; delete obj.fillColor; }
     if (act === 'rotateLeft') obj.rot = normAngle(obj.rot - 90);
     if (act === 'rotateRight') obj.rot = normAngle(obj.rot + 90);
     if (act === 'resetSettings') doc.settings = defaultSettings();
