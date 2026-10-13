@@ -406,6 +406,12 @@
       // Fill overrides are optional; without them the object follows the plan settings.
       if (FILLS[src.fillStyle]) o.fillStyle = src.fillStyle;
       if (pairSet(toPair(src.fillColor))) o.fillColor = toPair(src.fillColor);
+      // Shape: a rectangle unless stated. A polygon keeps its corners relative to the centre, before rotation.
+      if (src.shape === 'ellipse') o.shape = 'ellipse';
+      if (src.shape === 'polygon' && Array.isArray(src.points)) {
+        const pts = src.points.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]]);
+        if (pts.length >= 3) { o.shape = 'polygon'; o.points = pts; }
+      }
       if (src.hideName === true) o.hideName = true;
       if (src.hideSize === true) o.hideSize = true;
       // Optional dimensions per side, e.g. { size: 'lt', wall: 'r' }; letters are l, r, t, b.
@@ -462,6 +468,9 @@
   let sel = null;       // {kind: 'wall'|'opening', id} | {kind: 'dim'|'edge', key}
   let drag = null;
   let hiddenDimsOpen = false;   // whether the hidden-dimensions list in the side panel is unfolded
+  let polyDraft = [];           // corners clicked so far with the polygon tool (world points)
+  let polyHover = null;         // pointer position while drawing a polygon
+  let vertexSel = null;         // { id, index }: the polygon corner picked for deletion
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
   let ghost = null;     // opening preview while a door/window tool is active
   let snap = 10;
@@ -663,8 +672,44 @@
   }
 
   // Resize handles on the outline plus one rotation handle above the top edge.
+  const OBJECT_TOOLS = { object: undefined, ellipse: 'ellipse', polygon: 'polygon' };   // tool -> shape
+
+  // After its corners change, a polygon is re-centred on its bounding box and its size updated.
+  function normalisePolygon(o) {
+    const xs = o.points.map(p => p[0]), ys = o.points.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, c = objToWorld(o, cx, cy);
+    o.points = o.points.map(p => [Math.round(p[0] - cx), Math.round(p[1] - cy)]);
+    o.x = Math.round(c[0]); o.y = Math.round(c[1]);
+    o.w = Math.max(Math.round(x1 - x0), 10); o.h = Math.max(Math.round(y1 - y0), 10);
+  }
+
+  function pointInPolygon(x, y, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  // The object's outline in its own (rotated, centred) pixel frame.
+  function shapeEl(o, pw, ph, attrs) {
+    if (o.shape === 'ellipse') return `<ellipse rx="${f(pw / 2)}" ry="${f(ph / 2)}" ${attrs}/>`;
+    if (o.shape === 'polygon') return `<path d="${poly(o.points.map(p => [p[0] * view.scale, p[1] * view.scale]))}" ${attrs}/>`;
+    return `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" ${attrs}/>`;
+  }
+
   function objectHandles(o) {
     const at = (lx, ly) => S(...objToWorld(o, lx, ly));
+    if (o.shape === 'polygon') {
+      // A square on every corner, a dot in the middle of every edge (drag it to add a corner), and the rotation handle.
+      const n = o.points.length, top = Math.min(...o.points.map(p => p[1]));
+      const list = o.points.map((p, i) => ({ id: 'v', index: i, p: at(p[0], p[1]) }));
+      o.points.forEach((p, i) => { const q = o.points[(i + 1) % n]; list.push({ id: 'm', index: i, p: at((p[0] + q[0]) / 2, (p[1] + q[1]) / 2) }); });
+      list.push({ id: 'top', p: at(0, top) }, { id: 'rot', p: at(0, top - 24 / view.scale) });
+      return list;
+    }
     const list = HANDLES.map(([id, fx, fy]) => ({ id, fx, fy, p: at((fx - .5) * o.w, (fy - .5) * o.h) }));
     list.push({ id: 'rot', p: at(0, -o.h / 2 - 24 / view.scale) });
     return list;
@@ -673,7 +718,10 @@
   function hitObject(w, layerId) {
     for (let i = doc.objects.length - 1; i >= 0; i--) {
       const o = doc.objects[i], l = objToLocal(o, w);
-      if (o.layer === layerId && Math.abs(l.x) <= o.w / 2 && Math.abs(l.y) <= o.h / 2) return o;
+      if (o.layer !== layerId) continue;
+      if (o.shape === 'polygon' ? pointInPolygon(l.x, l.y, o.points)
+        : o.shape === 'ellipse' ? (l.x / (o.w / 2)) ** 2 + (l.y / (o.h / 2)) ** 2 <= 1
+        : Math.abs(l.x) <= o.w / 2 && Math.abs(l.y) <= o.h / 2) return o;
     }
     return null;
   }
@@ -681,14 +729,13 @@
   // Object interior: a plain colour, or hatch lines in that colour over white. The hatch turns with the object.
   function objectFillSvg(o, pw, ph) {
     const st = objSettings(o), style = o.fillStyle || st.objFillStyle, color = colourFrom(fillPairs(o), 'objFill', palMode);
-    const box = `x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}"`;
-    if (style === 'solid') return `<rect ${box} fill="${color}" fill-opacity=".85"/>`;
+    if (style === 'solid') return shapeEl(o, pw, ph, `fill="${color}" fill-opacity=".85"`);
     const id = 'objfill-' + (o.id || 'new');
     const n = st.objHatchSpacing;   // pattern tile size; extra stubs keep the lines joined at tile corners
     const left = `M0 0L${n} ${n}M-2 ${n - 2}L2 ${n + 2}M${n - 2} -2L${n + 2} 2`, right = `M0 ${n}L${n} 0M-2 2L2 -2M${n - 2} ${n + 2}L${n + 2} ${n - 2}`;
     const d = style === 'diagLeft' ? left : style === 'diagRight' ? right : left + right;
     return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${n}" height="${n}"><path d="${d}" stroke="${color}" stroke-width="1.2" fill="none"/></pattern></defs>` +
-      `<rect ${box} fill="${PAPER}" fill-opacity=".85"/><rect ${box} fill="url(#${id})"/>`;
+      shapeEl(o, pw, ph, `fill="${PAPER}" fill-opacity=".85"`) + shapeEl(o, pw, ph, `fill="url(#${id})"`);
   }
 
   function objectSvg(o, selected, preview) {
@@ -697,7 +744,7 @@
     const border = selected || preview ? Math.max(st.objBorderSize, selected ? 2 : 1.2) : st.objBorderSize;
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${o.rot})">` +
       objectFillSvg(o, pw, ph) +
-      `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="none" stroke="${border ? stroke : 'none'}" stroke-width="${border}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
+      shapeEl(o, pw, ph, `fill="none" stroke="${border ? stroke : 'none'}" stroke-width="${border}" stroke-linejoin="round"${preview ? ' stroke-dasharray="5 3"' : ''}`);
     const hatched = (o.fillStyle || st.objFillStyle) !== 'solid';
     // Name and size, as many lines as fit; the text always turns with the object.
     const size = st.objFontSize, showName = !!o.name && !o.hideName;
@@ -710,12 +757,14 @@
     }
     g += '</g>';
     if (selected && !objLayer(o).frozen) {
-      const hs = objectHandles(o), rot = hs[hs.length - 1], top = hs.find(x => x.id === 'n');
+      const hs = objectHandles(o), rot = hs[hs.length - 1], top = hs.find(x => x.id === 'n' || x.id === 'top');
       g += line(top.p, rot.p, `stroke="${ACCENT}" stroke-width="1"`);
       for (const hp of hs) {
-        g += hp.id === 'rot'
-          ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`
-          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
+        if (hp.id === 'top') continue;
+        const picked = hp.id === 'v' && vertexSel && vertexSel.id === o.id && vertexSel.index === hp.index;
+        g += hp.id === 'rot' ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="5" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`
+          : hp.id === 'm' ? `<circle cx="${f(hp.p[0])}" cy="${f(hp.p[1])}" r="3.2" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1" stroke-dasharray="2 1.5"/>`
+          : `<rect x="${f(hp.p[0] - 4)}" y="${f(hp.p[1] - 4)}" width="8" height="8" fill="${picked ? ACCENT : PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
       }
     }
     return g;
@@ -1067,8 +1116,10 @@
     }
     for (const o of doc.objects) {
       if (o === self || !objLayer(o).visible) continue;
-      const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => objToWorld(o, x * o.w / 2, y * o.h / 2));
-      for (let i = 0; i < 4; i++) segs.push([c[i], c[(i + 1) % 4]]);
+      // Polygons contribute their real edges; round objects are approximated by their bounding box.
+      const local = o.shape === 'polygon' ? o.points : [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => [x * o.w / 2, y * o.h / 2]);
+      const c = local.map(p => objToWorld(o, p[0], p[1]));
+      for (let i = 0; i < c.length; i++) segs.push([c[i], c[(i + 1) % c.length]]);
     }
     return segs;
   }
@@ -1121,7 +1172,7 @@
 
   function objectMeasuresSvg(o) {
     const m = o.measure;
-    if (!m) return '';
+    if (!m || o.shape) return '';   // side dimensions make sense for rectangles only
     let g = '';
     const segs = {};   // obstacle lists, built only when a gap is asked for
     for (const key of 'lrtb') {
@@ -1186,7 +1237,12 @@
 
     if (drag && drag.kind === 'newobject') {
       const r = dragRect(drag);
-      if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '', layer: targetLayer().id }, false, true));
+      if (r.w > 0 && r.h > 0) h.push(objectSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, name: '', layer: targetLayer().id, shape: drag.shape }, false, true));
+    }
+    if (tool === 'polygon' && polyDraft.length) {
+      const pts = polyDraft.concat(polyHover ? [polyHover] : []).map(p => S(p[0], p[1]));
+      h.push(`<path d="M${pts.map(p => f(p[0]) + ' ' + f(p[1])).join('L')}" fill="none" stroke="${ACCENT}" stroke-width="1.5" stroke-dasharray="5 3"/>`);
+      pts.slice(0, polyDraft.length).forEach((p, i) => h.push(`<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${i ? 3 : 5}" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`));
     }
     if (drag && drag.kind === 'newwall') {
       const r = dragRect(drag);
@@ -1405,6 +1461,10 @@
     } else if (tool === 'mark') {
       h = '<h3>New ceiling height mark</h3>' + field('Ceiling height', 'height', defaults.mark.height) +
         '<p>Click on the plan to place the mark. It belongs to the Dimensions layer and uses the dimension font and colours.</p>';
+    } else if (tool === 'ellipse') {
+      h = '<h3>Round object</h3><p>Drag to draw a circle or oval, or click to drop a standard one.</p><p>Objects do not attach to walls.</p>';
+    } else if (tool === 'polygon') {
+      h = '<h3>Polygon object</h3><p>Click to place each corner. Finish by clicking the first corner again, double-clicking, or pressing Enter.</p><p>Esc discards the corners placed so far.</p>';
     } else if (tool === 'object') {
       h = '<h3>Object</h3><p>Drag to draw a rectangle, or click to drop a standard one. Use it for furniture, appliances and the like.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'wall') {
@@ -1437,7 +1497,11 @@
     } else if (sel && sel.kind === 'object') {
       h = '<h3>Object</h3>' +
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
-        field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) + field('Width', 'w', obj.w) + field('Height', 'h', obj.h) +
+        field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) +
+        (obj.shape === 'polygon'
+          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner; drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
+            `<div class="row"><button data-act="delVertex" ${vertexSel && vertexSel.id === obj.id && obj.points.length > 3 ? '' : 'disabled'}>Delete selected corner</button></div>`
+          : field('Width', 'w', obj.w) + field('Height', 'h', obj.h)) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
         `<label class="field">Layer<select data-olayer>${doc.layers.slice().reverse().filter(l => l.kind === 'objects').map(l => `<option value="${esc(l.id)}"${l.id === obj.layer ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` +
         `<label class="field">Fill style<select data-ofill="fillStyle"><option value="">Default (${FILLS[objSettings(obj).objFillStyle]})</option>${Object.entries(FILLS).map(([v, t]) => `<option value="${v}"${obj.fillStyle === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` +
@@ -1445,12 +1509,13 @@
         (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill of its layer.</p>') +
         `<label class="check"><input type="checkbox" data-oflag="hideName"${obj.hideName ? ' checked' : ''}> Hide name on plan</label>` +
         `<label class="check"><input type="checkbox" data-oflag="hideSize"${obj.hideSize ? ' checked' : ''}> Hide dimensions on plan</label>` +
+        (obj.shape ? '' :
         '<h4>Dimensions on plan</h4><table class="measure"><tr><th></th><th>L</th><th>R</th><th>T</th><th>B</th></tr>' +
         [['size', 'Side length', 'Length of this side, drawn outside the object'],
           ['object', 'To object', 'Gap straight out from this side to the nearest other object'],
           ['wall', 'To wall', 'Gap straight out from this side to the nearest wall']].map(([type, label, tip]) =>
           `<tr title="${tip}"><td>${label}</td>${'lrtb'.split('').map(k => `<td><input type="checkbox" data-measure="${type}" data-mside="${k}"${((obj.measure || {})[type] || '').includes(k) ? ' checked' : ''}></td>`).join('')}</tr>`).join('') +
-        '</table><p>L, R, T, B are the object’s own sides and turn with it. These lines are drawn with the Dimensions layer.</p>' +
+        '</table><p>L, R, T, B are the object’s own sides and turn with it. These lines are drawn with the Dimensions layer.</p>') +
         descriptionField() +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
@@ -1675,6 +1740,7 @@
       setHidden(allDims().filter(d => d.comp === obj.comp).map(d => d.key), act === 'hideWallDims');
     }
     if (act === 'defaultFill') { delete obj.fillStyle; delete obj.fillColor; }
+    if (act === 'delVertex') return deleteSelection();
     if (act === 'defaultTitleStyle') { delete obj.font; delete obj.fontSize; delete obj.fontColor; }
     if (act === 'autoColour') {
       // Back to automatic for one side; an override with nothing left set is dropped altogether.
@@ -1700,6 +1766,16 @@
   function deleteSelection() {
     if (!sel) return;
     if (selLocked()) return toast(lockedNote());
+    // With a polygon corner picked, Delete removes that corner rather than the whole object.
+    if (sel.kind === 'object' && vertexSel && vertexSel.id === sel.id) {
+      const o = selectedObject();
+      if (o && o.shape === 'polygon' && o.points.length > 3) {
+        o.points.splice(vertexSel.index, 1);
+        normalisePolygon(o);
+        vertexSel = null;
+        return commit();
+      }
+    }
     if (sel.kind === 'wall') doc.walls = doc.walls.filter(w => w.id !== sel.id);
     else if (sel.kind === 'object') doc.objects = doc.objects.filter(o => o.id !== sel.id);
     else if (sel.kind === 'mark') doc.marks = doc.marks.filter(m => m.id !== sel.id);
@@ -1723,6 +1799,8 @@
     select: 'Click to select · drag or arrow keys to move · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
+    ellipse: 'Drag to draw a round object, or click to drop one · Esc to cancel',
+    polygon: 'Click each corner · click the first corner, double-click or press Enter to finish · Esc to discard',
     mark: 'Click to place a ceiling height mark · Esc to finish',
     title: 'Click to place a title on the highlighted layer · Esc to cancel',
     compass: 'Click to place a compass rose · Esc to cancel',
@@ -1733,6 +1811,8 @@
 
   function setTool(t) {
     tool = t;
+    polyDraft = [];
+    polyHover = null;
     ghost = null;
     drag = null;
     if (t !== 'select') sel = null;
@@ -1779,6 +1859,18 @@
     }
   }
 
+  // Turns the corners clicked with the polygon tool into an object and selects it.
+  function finishPolygon() {
+    const pts = polyDraft.filter((p, i) => !i || p[0] !== polyDraft[i - 1][0] || p[1] !== polyDraft[i - 1][1]);
+    if (pts.length < 3) return toast('A polygon needs at least three corners.');
+    const o = { id: doc.nextId++, name: '', description: '', x: 0, y: 0, w: 0, h: 0, rot: 0, layer: targetLayer().id, shape: 'polygon', points: pts };
+    normalisePolygon(o);
+    doc.objects.push(o);
+    setTool('select');
+    sel = { kind: 'object', id: o.id };
+    commit();
+  }
+
   function startMoveWall(rect, w0) {
     sel = { kind: 'wall', id: rect.id };
     const inside = o => o.x >= rect.x && o.x <= rect.x + rect.w && o.y >= rect.y && o.y <= rect.y + rect.h;
@@ -1798,7 +1890,7 @@
       svg.classList.add('panning');
       return;
     }
-    const toolLayer = tool === 'object' ? targetLayer() : tool === 'title' ? titleTargetLayer()
+    const toolLayer = tool in OBJECT_TOOLS ? targetLayer() : tool === 'title' ? titleTargetLayer()
       : tool === 'mark' || tool === 'compass' ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
     if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
@@ -1819,9 +1911,15 @@
       doc.marks.push({ id: doc.nextId++, x: snapv(w.x, e), y: snapv(w.y, e), height: defaults.mark.height });
       return commit();
     }
-    if (tool === 'object') {
+    if (tool === 'polygon') {
+      const pt = [snapv(w.x, e), snapv(w.y, e)], first = polyDraft[0] && S(polyDraft[0][0], polyDraft[0][1]);
+      if (polyDraft.length >= 3 && Math.hypot(first[0] - p.x, first[1] - p.y) <= 9) return finishPolygon();
+      polyDraft.push(pt);
+      return render();
+    }
+    if (tool === 'object' || tool === 'ellipse') {
       const a = { x: snapv(w.x, e), y: snapv(w.y, e) };
-      drag = { kind: 'newobject', a, b: a };
+      drag = { kind: 'newobject', a, b: a, shape: OBJECT_TOOLS[tool] };
       return;
     }
     if (OPENING_TOOLS.includes(tool)) {
@@ -1852,12 +1950,25 @@
     }
     if (sel && sel.kind === 'object' && !selLocked()) {
       const obj = selectedObject();
-      const hp = obj && objectHandles(obj).find(h => Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
+      const hp = obj && objectHandles(obj).find(h => h.id !== 'top' && Math.abs(h.p[0] - p.x) <= 7 && Math.abs(h.p[1] - p.y) <= 7);
+      if (hp && hp.id === 'rot') { drag = { kind: 'rotateobject', o: obj }; return; }
+      if (hp && (hp.id === 'v' || hp.id === 'm')) {
+        // A corner is picked (for Delete) and can be dragged; an edge dot becomes a new corner first.
+        let index = hp.index;
+        if (hp.id === 'm') {
+          const a = obj.points[index], b = obj.points[(index + 1) % obj.points.length];
+          obj.points.splice(++index, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+        }
+        vertexSel = { id: obj.id, index };
+        drag = { kind: 'movevertex', o: obj, index };
+        return renderAll();
+      }
       if (hp) {
-        drag = hp.id === 'rot' ? { kind: 'rotateobject', o: obj } : { kind: 'resizeobject', o: obj, sx: hp.fx * 2 - 1, sy: hp.fy * 2 - 1, orig: Object.assign({}, obj) };
+        drag = { kind: 'resizeobject', o: obj, sx: hp.fx * 2 - 1, sy: hp.fy * 2 - 1, orig: Object.assign({}, obj) };
         return;
       }
     }
+    vertexSel = null;
     // The topmost layer under the pointer wins; hidden layers are passed through.
     // On a frozen layer things can be selected (to look at them) but no drag starts.
     for (const layer of doc.layers.slice().reverse()) {
@@ -1924,6 +2035,10 @@
     $('#coords').textContent = `x ${fmt(w.x)}  y ${fmt(w.y)} ${doc.units}`;
 
     if (!drag) {
+      if (tool === 'polygon' && polyDraft.length) {
+        polyHover = [snapv(w.x, e), snapv(w.y, e)];
+        render();
+      }
       if (OPENING_TOOLS.includes(tool)) {
         const loc = locate(w, openingWidth(defaults[tool]), e);
         ghost = loc ? makeOpening(tool, loc) : null;
@@ -1945,6 +2060,9 @@
       const step = e.altKey ? 1 : 15;
       const ang = Math.atan2(w.y - drag.o.y, w.x - drag.o.x) * 180 / Math.PI + 90;
       drag.o.rot = normAngle(Math.round(ang / step) * step);
+    } else if (drag.kind === 'movevertex') {
+      const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) });
+      drag.o.points[drag.index] = [l.x, l.y];
     } else if (drag.kind === 'resizecompass') {
       // The centre stays put; the dragged corner sets the diameter.
       const l = objToLocal(drag.o, w);
@@ -1998,10 +2116,15 @@
     drag = null;
     svg.classList.remove('panning');
     if (!d) return;
+    if (d.kind === 'movevertex') {
+      normalisePolygon(d.o);
+      return commit();
+    }
     if (d.kind === 'newobject') {
       let r = dragRect(d);
       if (!r.w || !r.h) r = { x: d.a.x - 500, y: d.a.y - 300, w: 1000, h: 600 };   // plain click: standard size
       const o = { id: doc.nextId++, name: '', description: '', x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, layer: targetLayer().id };
+      if (d.shape) o.shape = d.shape;
       doc.objects.push(o);
       setTool('select');
       sel = { kind: 'object', id: o.id };
@@ -2019,6 +2142,7 @@
     if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject', 'movemark', 'resizecompass'].includes(d.kind)) return commit();
     render();
   }
+  svg.addEventListener('dblclick', () => { if (tool === 'polygon' && polyDraft.length) finishPolygon(); });
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
   svg.addEventListener('pointerleave', () => { if (ghost) { ghost = null; render(); } });
@@ -2044,8 +2168,10 @@
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); stepHistory(1); return; }
     if (mod) return;
     if (e.key === ' ') { spaceDown = true; e.preventDefault(); return; }
+    if (e.key === 'Enter' && tool === 'polygon' && polyDraft.length) { e.preventDefault(); finishPolygon(); return; }
     if (e.key === 'Escape') {
-      if (tool !== 'select') setTool('select');
+      if (tool === 'polygon' && polyDraft.length) { polyDraft = []; polyHover = null; render(); }
+      else if (tool !== 'select') setTool('select');
       else { sel = null; renderAll(); }
       return;
     }
@@ -2055,7 +2181,7 @@
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', h: 'mark', t: 'title', c: 'compass' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', t: 'title', c: 'compass' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });

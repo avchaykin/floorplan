@@ -78,7 +78,9 @@
     #saveStatus.warn { color: var(--warn); }
     #saveStatus.err { color: var(--err); }
 
-    #tools { display: flex; gap: 4px; padding: 0 10px 0 4px; margin-right: 4px; border-right: 1px solid var(--border); }
+    #tools { display: flex; padding: 0 10px 0 4px; margin-right: 4px; border-right: 1px solid var(--border); }
+    #tools .tgroup { display: flex; gap: 3px; }
+    #tools .tgroup + .tgroup { margin-left: 7px; padding-left: 7px; border-left: 1px solid var(--border); }
     #tools button { display: flex; align-items: center; padding: 4px 6px; }
     #tools button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
     #tools svg { display: block; pointer-events: none; }
@@ -86,7 +88,7 @@
     #stage { grid-area: stage; position: relative; background: var(--paper); min-width: 0; min-height: 0; }
     #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
     #canvas.tool-select { cursor: default; }
-    #canvas.tool-wall, #canvas.tool-door, #canvas.tool-doorway, #canvas.tool-window, #canvas.tool-object, #canvas.tool-mark, #canvas.tool-title, #canvas.tool-compass { cursor: crosshair; }
+    #canvas.tool-wall, #canvas.tool-door, #canvas.tool-doorway, #canvas.tool-window, #canvas.tool-object, #canvas.tool-ellipse, #canvas.tool-polygon, #canvas.tool-mark, #canvas.tool-title, #canvas.tool-compass { cursor: crosshair; }
     #canvas.panning { cursor: grabbing; }
     #canvas text { font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
@@ -207,15 +209,27 @@
     <a id="brand" class="brand" target="_blank" rel="noopener">Floorplan</a>
     <!-- Tool icons: Material Design Icons (pictogrammers.com), Apache License 2.0 -->
     <nav id="tools">
-      <button data-tool="select" title="Select / move (V)" aria-label="Select / move"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M13.64,21.97C13.14,22.21 12.54,22 12.31,21.5L10.13,16.76L7.62,18.78C7.45,18.92 7.24,19 7,19A1,1 0 0,1 6,18V3A1,1 0 0,1 7,2C7.24,2 7.47,2.09 7.64,2.23L7.65,2.22L19.14,11.86C19.57,12.22 19.62,12.85 19.27,13.27C19.12,13.45 18.91,13.57 18.7,13.61L15.54,14.23L17.74,18.96C18,19.46 17.76,20.05 17.26,20.28L13.64,21.97Z"/></svg></button>
-      <button data-tool="wall" title="Draw wall rectangle (W)" aria-label="Draw wall rectangle"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3,16H12V21H3V16M2,10H8V15H2V10M9,10H15V15H9V10M16,10H22V15H16V10M13,16H21V21H13V16M3,4H11V9H3V4M12,4H21V9H12V4Z"/></svg></button>
-      <button data-tool="door" title="Add door (D)" aria-label="Add door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M16,11H18V13H16V11M12,3H19C20.11,3 21,3.89 21,5V19H22V21H2V19H10V5C10,3.89 10.89,3 12,3M12,5V19H19V5H12Z"/></svg></button>
-      <button data-tool="doorway" title="Add doorway without door (O)" aria-label="Add doorway without door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,3C10.89,3 10,3.89 10,5H3V19H2V21H22V19H21V5C21,3.89 20.11,3 19,3H12M12,5H19V19H12V5M5,11H7V13H5V11Z"/></svg></button>
-      <button data-tool="window" title="Add window (N)" aria-label="Add window"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M21 20V2H3V20H1V23H23V20M19 4V11H13V4M5 4H11V11H5M5 20V13H11V20M13 20V13H19V20Z"/></svg></button>
-      <button data-tool="object" title="Add a free object, e.g. furniture (B)" aria-label="Add a free object, e.g. furniture"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 9V7C19 5.35 17.65 4 16 4H8C6.35 4 5 5.35 5 7V9C3.35 9 2 10.35 2 12V17C2 18.65 3.35 20 5 20V22H7V20H17V22H19V20C20.65 20 22 18.65 22 17V12C22 10.35 20.65 9 19 9M7 7C7 6.45 7.45 6 8 6H16C16.55 6 17 6.45 17 7V9.78C16.39 10.33 16 11.12 16 12V14H8V12C8 11.12 7.61 10.33 7 9.78V7M20 17C20 17.55 19.55 18 19 18H5C4.45 18 4 17.55 4 17V12C4 11.45 4.45 11 5 11S6 11.45 6 12V16H18V12C18 11.45 18.45 11 19 11S20 11.45 20 12V17Z"/></svg></button>
-      <button data-tool="mark" title="Add ceiling height mark (H)" aria-label="Add ceiling height mark"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,7L17,12H14V16H10V12H7L12,7M19,21H5A2,2 0 0,1 3,19V5A2,2 0 0,1 5,3H19A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21M19,19V5H5V19H19Z"/></svg></button>
-      <button data-tool="title" title="Add title text (T)" aria-label="Add title text"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M5,4V7H10.5V19H13.5V7H19V4H5Z"/></svg></button>
-      <button data-tool="compass" title="Add compass rose (C)" aria-label="Add compass rose"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7,17L10.2,10.2L17,7L13.8,13.8L7,17M12,11.1A0.9,0.9 0 0,0 11.1,12A0.9,0.9 0 0,0 12,12.9A0.9,0.9 0 0,0 12.9,12A0.9,0.9 0 0,0 12,11.1M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+      <span class="tgroup">
+        <button data-tool="select" title="Select / move (V)" aria-label="Select / move"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M13.64,21.97C13.14,22.21 12.54,22 12.31,21.5L10.13,16.76L7.62,18.78C7.45,18.92 7.24,19 7,19A1,1 0 0,1 6,18V3A1,1 0 0,1 7,2C7.24,2 7.47,2.09 7.64,2.23L7.65,2.22L19.14,11.86C19.57,12.22 19.62,12.85 19.27,13.27C19.12,13.45 18.91,13.57 18.7,13.61L15.54,14.23L17.74,18.96C18,19.46 17.76,20.05 17.26,20.28L13.64,21.97Z"/></svg></button>
+      </span>
+      <span class="tgroup" data-group="Walls" title="Walls">
+        <button data-tool="wall" title="Draw wall rectangle (W)" aria-label="Draw wall rectangle"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3,16H12V21H3V16M2,10H8V15H2V10M9,10H15V15H9V10M16,10H22V15H16V10M13,16H21V21H13V16M3,4H11V9H3V4M12,4H21V9H12V4Z"/></svg></button>
+        <button data-tool="door" title="Add door (D)" aria-label="Add door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M16,11H18V13H16V11M12,3H19C20.11,3 21,3.89 21,5V19H22V21H2V19H10V5C10,3.89 10.89,3 12,3M12,5V19H19V5H12Z"/></svg></button>
+        <button data-tool="doorway" title="Add doorway without door (O)" aria-label="Add doorway without door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,3C10.89,3 10,3.89 10,5H3V19H2V21H22V19H21V5C21,3.89 20.11,3 19,3H12M12,5H19V19H12V5M5,11H7V13H5V11Z"/></svg></button>
+        <button data-tool="window" title="Add window (N)" aria-label="Add window"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M21 20V2H3V20H1V23H23V20M19 4V11H13V4M5 4H11V11H5M5 20V13H11V20M13 20V13H19V20Z"/></svg></button>
+      </span>
+      <span class="tgroup" data-group="Objects" title="Objects">
+        <button data-tool="object" title="Add rectangular object (B)" aria-label="Add rectangular object"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M4,6V19H20V6H4M18,17H6V8H18V17Z"/></svg></button>
+        <button data-tool="ellipse" title="Add round object (E)" aria-label="Add round object"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></svg></button>
+        <button data-tool="polygon" title="Add polygon object (G)" aria-label="Add polygon object"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2,2V8H4.28L5.57,16H4V22H10V20.06L15,20.05V22H21V16H19.17L20,9H22V3H16V6.53L14.8,8H9.59L8,5.82V2M4,4H6V6H4M18,5H20V7H18M6.31,8H7.11L9,10.59V14H15V10.91L16.57,9H18L17.16,16H15V18.06H10V16H7.6M11,10H13V12H11M6,18H8V20H6M17,18H19V20H17"/></svg></button>
+      </span>
+      <span class="tgroup" data-group="Dimensions" title="Dimensions">
+        <button data-tool="mark" title="Add ceiling height mark (H)" aria-label="Add ceiling height mark"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,7L17,12H14V16H10V12H7L12,7M19,21H5A2,2 0 0,1 3,19V5A2,2 0 0,1 5,3H19A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21M19,19V5H5V19H19Z"/></svg></button>
+      </span>
+      <span class="tgroup" data-group="Decoration" title="Decoration">
+        <button data-tool="title" title="Add title text (T)" aria-label="Add title text"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M5,4V7H10.5V19H13.5V7H19V4H5Z"/></svg></button>
+        <button data-tool="compass" title="Add compass rose (C)" aria-label="Add compass rose"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7,17L10.2,10.2L17,7L13.8,13.8L7,17M12,11.1A0.9,0.9 0 0,0 11.1,12A0.9,0.9 0 0,0 12,12.9A0.9,0.9 0 0,0 12.9,12A0.9,0.9 0 0,0 12,11.1M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+      </span>
     </nav>
     <button id="btnFolder" title="Choose the folder where plans are stored">Open folder…</button>
     <select id="planSelect" title="Plan file" disabled></select>
