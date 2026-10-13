@@ -309,6 +309,8 @@
       // Fill overrides are optional; without them the object follows the plan settings.
       if (FILLS[src.fillStyle]) o.fillStyle = src.fillStyle;
       if (isColour(src.fillColor)) o.fillColor = src.fillColor;
+      if (src.hideName === true) o.hideName = true;
+      if (src.hideSize === true) o.hideSize = true;
       return o;
     });
     out.layers = cleanLayers(d.layers, out.settings);
@@ -558,12 +560,13 @@
       `<rect x="${f(-pw / 2)}" y="${f(-ph / 2)}" width="${f(pw)}" height="${f(ph)}" fill="none" stroke="${border ? stroke : 'none'}" stroke-width="${border}"${preview ? ' stroke-dasharray="5 3"' : ''}/>`;
     const hatched = (o.fillStyle || st.objFillStyle) !== 'solid';
     // Name and size, as many lines as fit; the text always turns with the object.
-    const size = st.objFontSize, lines = [o.name, `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
-    const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * (t === o.name ? 0.66 : 0.6) + 6);
+    const size = st.objFontSize, showName = !!o.name && !o.hideName;
+    const lines = [showName && o.name, !o.hideSize && `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
+    const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * (showName && t === o.name ? 0.66 : 0.6) + 6);
     const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && o.name ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="#fff" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="#fff" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected) {
@@ -1002,6 +1005,8 @@
         `<label class="field">Fill style<select data-ofill="fillStyle"><option value="">Default (${FILLS[objSettings(obj).objFillStyle]})</option>${Object.entries(FILLS).map(([v, t]) => `<option value="${v}"${obj.fillStyle === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` +
         `<label class="field">Fill colour<input type="color" data-ofill="fillColor" value="${obj.fillColor || objSettings(obj).objFillColor}"><span></span></label>` +
         (obj.fillStyle || obj.fillColor ? '<div class="row"><button data-act="defaultFill">Use default fill</button></div>' : '<p>Using the default fill of its layer.</p>') +
+        `<label class="check"><input type="checkbox" data-oflag="hideName"${obj.hideName ? ' checked' : ''}> Hide name on plan</label>` +
+        `<label class="check"><input type="checkbox" data-oflag="hideSize"${obj.hideSize ? ' checked' : ''}> Hide dimensions on plan</label>` +
         `<label class="note">Description<textarea data-desc rows="4" placeholder="Notes about this object; not shown on the plan">${esc(obj.description || '')}</textarea></label>` +
         '<div class="row"><button data-act="rotateLeft">⟲ 90°</button><button data-act="rotateRight">⟳ 90°</button></div>' +
         '<p>Drag to move, drag the squares to resize and the round handle to rotate (Alt for free angle).</p>' +
@@ -1082,6 +1087,11 @@
     if ('lname' in e.target.dataset && layerPanel) {
       const layer = layerById(layerPanel);
       layer.name = e.target.value.trim() || layer.name;
+      return commit();
+    }
+    if (e.target.dataset.oflag && sel && sel.kind === 'object') {
+      const o = selectedObject();
+      if (e.target.checked) o[e.target.dataset.oflag] = true; else delete o[e.target.dataset.oflag];
       return commit();
     }
     if ('olayer' in e.target.dataset && sel && sel.kind === 'object') {
