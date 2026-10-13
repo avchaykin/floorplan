@@ -151,9 +151,33 @@
   const $ = s => document.querySelector(s);
   const svg = $('#canvas'), panel = $('#panel');
 
-  const WALL_FILL = '#4d4d4d', INK = '#2b2b2b', ACCENT = '#1a73e8', DIM = '#5f6b7a', BAD = '#c62828';
-  const DIM_OFFSET = 18;          // px between wall face and dimension line
-  const DIM_TIER = 24;            // px between the opening chain and the overall dimension
+  const INK = '#2b2b2b', ACCENT = '#1a73e8', BAD = '#c62828';
+  const DIM_OFFSET = 18;          // px between wall face and dimension line at 100% distance
+  const FONTS = {
+    system: ['System', "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
+    arial: ['Arial', 'Arial, Helvetica, sans-serif'],
+    times: ['Times New Roman', "'Times New Roman', Times, serif"],
+    georgia: ['Georgia', 'Georgia, serif'],
+    courier: ['Courier New', "'Courier New', Courier, monospace"],
+    mono: ['Monospace', 'ui-monospace, Menlo, monospace'],
+  };
+  const DIM_ENDS = { arrow: 'Arrows', tick: 'Ticks', dot: 'Dots', none: 'None' };
+
+  // Appearance settings, stored with each plan.
+  function defaultSettings() {
+    return { wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100 };
+  }
+
+  function cleanSettings(raw) {
+    const out = defaultSettings(), src = raw || {};
+    const colour = v => /^#[0-9a-f]{6}$/i.test(v);
+    for (const k of ['wallColor', 'dimColor', 'dimFontColor']) if (colour(src[k])) out[k] = src[k];
+    if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
+    if (FONTS[src.dimFont]) out.dimFont = src.dimFont;
+    if (Number.isFinite(src.dimFontSize)) out.dimFontSize = Math.min(Math.max(Math.round(src.dimFontSize), 6), 40);
+    if (Number.isFinite(src.dimDistance)) out.dimDistance = Math.min(Math.max(Math.round(src.dimDistance), 20), 500);
+    return out;
+  }
   const ORPHAN_THICKNESS = 150;   // mm, used when an opening is no longer inside a wall
   const OPENING_TOOLS = ['door', 'doorway', 'window'];
   // Geometry is always stored in mm; the unit only changes how lengths are shown and typed.
@@ -164,13 +188,14 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], hiddenDimensions: [], realDimensions: {} };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings() };
   }
 
   function normalizeDoc(d) {
     if (!d || d.format !== 'floorplan' || !Array.isArray(d.walls)) throw new Error('not a floorplan file');
     const out = newDoc();
     if (UNITS[d.units]) out.units = d.units;
+    out.settings = cleanSettings(d.settings);
     out.walls = d.walls.filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0);
     out.openings = (d.openings || []).filter(o => OPENING_TOOLS.includes(o.type) && Number.isFinite(o.x) && Number.isFinite(o.y));
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
@@ -194,6 +219,7 @@
   let walls = Geo.buildWalls([]);
   let history = [], hIndex = -1;
   let tool = 'select';
+  let showSettings = false;   // side panel shows the plan settings
   let sel = null;       // {kind: 'wall'|'opening', id} | {kind: 'dim'|'edge', key}
   let drag = null;
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
@@ -203,6 +229,7 @@
   const view = { scale: 0.08, ox: 80, oy: 80 };   // screen px = mm * scale + offset
 
   const rebuild = () => { walls = Geo.buildWalls(doc.walls); };
+  const freshDoc = () => Object.assign(newDoc(), { units: doc.units, settings: Object.assign({}, doc.settings) });
   const isEmpty = () => !doc.walls.length && !doc.openings.length;
 
   function resetHistory() {
@@ -356,6 +383,8 @@
 
   // Dimensions of one wall line. A line with doors/windows in it gets a chain
   // (wall part, opening, wall part, ...) next to the wall and the overall length outside it.
+  const dimOffset = () => DIM_OFFSET * doc.settings.dimDistance / 100;
+
   function dimsOf(seg) {
     const horiz = seg.ny !== 0;
     const lo = horiz ? Math.min(seg.x1, seg.x2) : Math.min(seg.y1, seg.y2), hi = lo + seg.len;
@@ -373,7 +402,7 @@
     const base = { nx: seg.nx, ny: seg.ny, comp: seg.comp, segKey: seg.key };
     const overall = Object.assign({
       key: seg.key, x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, len: seg.len,
-      off: cuts.length ? DIM_OFFSET + DIM_TIER : DIM_OFFSET,
+      off: cuts.length ? dimOffset() + doc.settings.dimFontSize + 13 : dimOffset(),
     }, base);
     if (!cuts.length) return [overall];
     const stops = Array.from(new Set([lo, hi].concat(cuts))).sort((a, b) => a - b);
@@ -381,7 +410,7 @@
     for (let i = 0; i + 1 < stops.length; i++) {
       const a = stops[i], b = stops[i + 1];
       const c = horiz ? [a, face, b, face] : [face, a, face, b];
-      out.push(Object.assign({ key: 'p:' + c.join(','), x1: c[0], y1: c[1], x2: c[2], y2: c[3], len: b - a, off: DIM_OFFSET }, base));
+      out.push(Object.assign({ key: 'p:' + c.join(','), x1: c[0], y1: c[1], x2: c[2], y2: c[3], len: b - a, off: dimOffset() }, base));
     }
     out.push(overall);
     return out;
@@ -391,11 +420,11 @@
 
   function dimGeom(dim) {
     const [ax, ay] = S(dim.x1, dim.y1), [bx, by] = S(dim.x2, dim.y2);
-    const ox = dim.nx * dim.off, oy = dim.ny * dim.off;
+    const ox = dim.nx * dim.off, oy = dim.ny * dim.off, textOff = dim.off + doc.settings.dimFontSize * 0.82;
     return {
       ax, ay, bx, by,
       a: [ax + ox, ay + oy], b: [bx + ox, by + oy],
-      tx: (ax + bx) / 2 + dim.nx * (dim.off + 9), ty: (ay + by) / 2 + dim.ny * (dim.off + 9),
+      tx: (ax + bx) / 2 + dim.nx * textOff, ty: (ay + by) / 2 + dim.ny * textOff,
       vertical: dim.nx !== 0,
       text: dimText(dim),
     };
@@ -412,7 +441,7 @@
   function hitDim(p) {
     for (const seg of visibleDims()) {
       const g = dimGeom(seg);
-      const hw = g.text.length * 3.5 + 3, hh = 8;
+      const size = doc.settings.dimFontSize, hw = g.text.length * size * 0.32 + 3, hh = size * 0.73;
       const inText = Math.abs(p.x - g.tx) <= (g.vertical ? hh : hw) && Math.abs(p.y - g.ty) <= (g.vertical ? hw : hh);
       if (inText || distToSegment(p, g.a, g.b) <= 5) return seg;
     }
@@ -517,14 +546,29 @@
     return h + '</g>';
   }
 
+  // End marker of a dimension line at p; the line runs from p towards q.
+  function dimEndSvg(p, q, color) {
+    const kind = doc.settings.dimEnds;
+    if (kind === 'none') return '';
+    if (kind === 'dot') return `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="1.8" fill="${color}"/>`;
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, dx = (q[0] - p[0]) / len, dy = (q[1] - p[1]) / len;
+    if (kind === 'tick') {
+      const tx = (dx - dy) * 3.5, ty = (dy + dx) * 3.5;
+      return line([p[0] - tx, p[1] - ty], [p[0] + tx, p[1] + ty], `stroke="${color}" stroke-width="1.2"`);
+    }
+    const bx = p[0] + dx * 8, by = p[1] + dy * 8;
+    return `<path d="${poly([p, [bx - dy * 2.8, by + dx * 2.8], [bx + dy * 2.8, by - dx * 2.8]])}" fill="${color}"/>`;
+  }
+
   function dimSvg(seg, selected) {
-    const g = dimGeom(seg), color = selected ? ACCENT : DIM, sw = selected ? 1.8 : 1;
+    const st = doc.settings, g = dimGeom(seg), sw = selected ? 1.8 : 1;
+    const color = selected ? ACCENT : st.dimColor, textColor = selected ? ACCENT : st.dimFontColor;
     const ext = (x, y) => line([x + seg.nx * 3, y + seg.ny * 3], [x + seg.nx * (seg.off + 4), y + seg.ny * (seg.off + 4)], `stroke="${color}" stroke-width="0.8"`);
     const rot = g.vertical ? ` transform="rotate(-90 ${f(g.tx)} ${f(g.ty)})"` : '';
     return ext(g.ax, g.ay) + ext(g.bx, g.by) +
       line(g.a, g.b, `stroke="${color}" stroke-width="${sw}"`) +
-      `<circle cx="${f(g.a[0])}" cy="${f(g.a[1])}" r="1.8" fill="${color}"/><circle cx="${f(g.b[0])}" cy="${f(g.b[1])}" r="1.8" fill="${color}"/>` +
-      `<text x="${f(g.tx)}" y="${f(g.ty)}" text-anchor="middle" dominant-baseline="central" fill="${color}" stroke="#fff" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
+      dimEndSvg(g.a, g.b, color) + dimEndSvg(g.b, g.a, color) +
+      `<text x="${f(g.tx)}" y="${f(g.ty)}" style="font-family:${FONTS[st.dimFont][1]};font-size:${st.dimFontSize}px" text-anchor="middle" dominant-baseline="central" fill="${textColor}" stroke="#fff" stroke-width="3" paint-order="stroke"${selected ? ' font-weight="600"' : ''}${rot}>${g.text}</text>`;
   }
 
   function render() {
@@ -533,7 +577,7 @@
 
     if (walls.loops.length) {
       const d = walls.loops.map(l => poly(l.points.map(p => S(p[0], p[1])))).join('');
-      h.push(`<path d="${d}" fill="${WALL_FILL}" fill-rule="evenodd"/>`);
+      h.push(`<path d="${d}" fill="${doc.settings.wallColor}" fill-rule="evenodd"/>`);
     }
 
     for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
@@ -555,7 +599,7 @@
     if (drag && drag.kind === 'newwall') {
       const r = dragRect(drag);
       const [x, y] = S(r.x, r.y);
-      h.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(r.w * view.scale)}" height="${f(r.h * view.scale)}" fill="${WALL_FILL}" fill-opacity=".55" stroke="${ACCENT}" stroke-width="1"/>`);
+      h.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(r.w * view.scale)}" height="${f(r.h * view.scale)}" fill="${doc.settings.wallColor}" fill-opacity=".55" stroke="${ACCENT}" stroke-width="1"/>`);
       h.push(`<text x="${f(x + r.w * view.scale / 2)}" y="${f(y - 10)}" text-anchor="middle" fill="${ACCENT}" stroke="#fff" stroke-width="3" paint-order="stroke" font-weight="600">${fmt(r.w)} × ${fmt(r.h)}</text>`);
     }
     if (previewDim) {
@@ -591,8 +635,25 @@
   function renderPanel() {
     const obj = selectedObject();
     if (sel && !obj) sel = null;
+    if (sel || tool !== 'select') showSettings = false;
     let h;
-    if (OPENING_TOOLS.includes(tool)) {
+    if (showSettings) {
+      const st = doc.settings;
+      const row = (label, control, unit) => `<label class="field">${label}${control}${unit === undefined ? '' : `<span>${unit}</span>`}</label>`;
+      const colour = key => `<input type="color" data-set="${key}" value="${st[key]}">`;
+      const number = (key, min, max) => `<input type="number" data-set="${key}" min="${min}" max="${max}" value="${st[key]}">`;
+      const choice = (key, options) => `<select data-set="${key}">${options.map(([v, t]) => `<option value="${v}"${st[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
+      h = '<h3>Plan settings</h3><h4>Walls</h4>' + row('Colour', colour('wallColor'), '') +
+        '<h4>Dimensions</h4>' +
+        row('Line ends', choice('dimEnds', Object.entries(DIM_ENDS))) +
+        row('Line colour', colour('dimColor'), '') +
+        row('Font', choice('dimFont', Object.entries(FONTS).map(([k, v]) => [k, v[0]]))) +
+        row('Font size', number('dimFontSize', 6, 40), 'px') +
+        row('Font colour', colour('dimFontColor'), '') +
+        row('Distance from wall', number('dimDistance', 20, 500), '%') +
+        '<p>Settings are saved with this plan. New plans start with the same settings.</p>' +
+        '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
+    } else if (OPENING_TOOLS.includes(tool)) {
       h = `<h3>New ${TITLES[tool].toLowerCase()}</h3>${openingFields(tool, defaults[tool])}<p>Click on a wall to place it. The side of the wall you click on sets the ${tool === 'window' ? 'sill side' : 'opening direction'}.</p>`;
     } else if (tool === 'wall') {
       h = '<h3>Wall</h3><p>Drag to draw a rectangle. Rectangles that touch or overlap merge into one wall.</p><p>Hold Alt to draw without snapping.</p>';
@@ -634,7 +695,23 @@
     panel.innerHTML = h;
   }
 
+  function applySetting(input) {
+    const key = input.dataset.set;
+    const value = input.type === 'number' ? Number(input.value) : input.value;
+    doc.settings = cleanSettings(Object.assign({}, doc.settings, { [key]: value }));
+  }
+  // Live preview while a colour is being picked or a number typed; committed on change.
+  panel.addEventListener('input', e => {
+    if (!e.target.dataset.set) return;
+    applySetting(e.target);
+    render();
+  });
+
   panel.addEventListener('change', e => {
+    if (e.target.dataset.set) {
+      applySetting(e.target);
+      return commit();
+    }
     if ('real' in e.target.dataset && sel && sel.kind === 'dim') {
       const mm = Math.round((Number(e.target.value) || 0) * UNITS[doc.units].factor);
       if (mm > 0) doc.realDimensions[sel.key] = mm; else delete doc.realDimensions[sel.key];
@@ -681,6 +758,8 @@
     if (act === 'showWallDims' || act === 'hideWallDims') {
       setHidden(allDims().filter(d => d.comp === obj.comp).map(d => d.key), act === 'hideWallDims');
     }
+    if (act === 'resetSettings') doc.settings = defaultSettings();
+    if (act === 'closeSettings') showSettings = false;
     if (act === 'clearReal') delete doc.realDimensions[sel.key];
     if (act === 'showDim') {
       setHidden([e.target.closest('[data-dim]').dataset.dim], false);
@@ -930,6 +1009,13 @@
     const b = e.target.closest('button[data-tool]');
     if (b) setTool(b.dataset.tool);
   });
+  $('#btnSettings').onclick = () => {
+    const open = !showSettings;
+    sel = null;
+    if (tool !== 'select') setTool('select');
+    showSettings = open;
+    renderAll();
+  };
   $('#btnUndo').onclick = () => stepHistory(-1);
   $('#btnRedo').onclick = () => stepHistory(1);
   $('#snapSelect').onchange = e => { snap = +e.target.value; render(); };
@@ -1123,7 +1209,7 @@
   $('#btnNew').onclick = () => {
     if (!dir) {
       // No folder yet: just start over; the previous drawing stays reachable through Undo.
-      doc = newDoc();
+      doc = freshDoc();
       sel = null;
       return commit();
     }
@@ -1141,7 +1227,7 @@
       if (names.includes(base + '.json')) { $('#newErr').textContent = 'A file with this name already exists.'; return; }
       await flushSave();
       $('#newDlg').close();
-      setDoc(newDoc());
+      setDoc(freshDoc());
       await saveAsNewFile(base + '.json');
     } catch (err) {
       $('#newErr').textContent = err.message;

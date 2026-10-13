@@ -111,6 +111,9 @@
     #panel p { margin: 0 0 10px; color: var(--muted); }
     #panel label.field { display: grid; grid-template-columns: 1fr 78px 22px; align-items: center; gap: 6px; margin-bottom: 6px; }
     #panel label.field input { width: 100%; text-align: right; }
+    #panel label.field select { width: 100%; grid-column: 2 / 4; }
+    #panel label.field input[type=color] { height: 26px; padding: 2px; }
+    #panel h4 { margin: 14px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     #panel label.field span { color: var(--muted); }
     #panel label.check { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
     #panel .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
@@ -164,6 +167,7 @@
     <button id="btnNew">New plan</button>
     <span id="saveStatus"></span>
     <span class="spacer"></span>
+    <button id="btnSettings" title="Colours and dimension style of this plan">Settings</button>
     <button id="btnUndo" title="Undo (⌘Z)">Undo</button>
     <button id="btnRedo" title="Redo (⇧⌘Z)">Redo</button>
     <label class="inline">Units
