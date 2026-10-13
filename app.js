@@ -1587,7 +1587,7 @@
     } else if (tool === 'ellipse') {
       h = '<h3>Round object</h3><p>Drag to draw a circle or oval, or click to drop a standard one.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'polygon') {
-      h = '<h3>Polygon object</h3><p>Click to place each corner. Finish by clicking the first corner again, double-clicking, or pressing Enter.</p><p>Esc discards the corners placed so far.</p>';
+      h = '<h3>Polygon object</h3><p>Click to place each corner. Hold Shift to keep a side horizontal or vertical. Finish by clicking the first corner again, double-clicking, or pressing Enter.</p><p>Esc discards the corners placed so far.</p>';
     } else if (tool === 'object') {
       h = '<h3>Object</h3><p>Drag to draw a rectangle, or click to drop a standard one. Use it for furniture, appliances and the like.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'wall') {
@@ -1640,7 +1640,7 @@
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
         field('Centre X', 'x', obj.x) + field('Centre Y', 'y', obj.y) +
         (obj.shape === 'polygon'
-          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner; drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
+          ? `<p>${obj.points.length} corners, ${fmt(obj.w)} × ${fmt(obj.h)} ${doc.units} overall. Drag a square to move a corner (hold Shift to square it up with its neighbours); drag a dot on an edge to add one; click a square, then Delete, to remove it.</p>` +
             `<div class="row"><button data-act="delVertex" ${vertexSel && vertexSel.id === obj.id && obj.points.length > 3 ? '' : 'disabled'}>Delete selected corner</button></div>`
           : field('Width', 'w', obj.w) + field('Height', 'h', obj.h)) +
         `<label class="field">Rotation<input type="number" step="15" data-rot value="${obj.rot}"><span>°</span></label>` +
@@ -1960,7 +1960,7 @@
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     ellipse: 'Drag to draw a round object, or click to drop one · Esc to cancel',
-    polygon: 'Click each corner · click the first corner, double-click or press Enter to finish · Esc to discard',
+    polygon: 'Click each corner (Shift keeps sides horizontal or vertical) · click the first corner, double-click or press Enter to finish · Esc to discard',
     mark: 'Click to place a ceiling height mark · Esc to finish',
     title: 'Click to place a title on the highlighted layer · Esc to cancel',
     comment: 'Drag to draw a comment note, or click to drop one · Esc to cancel',
@@ -2022,6 +2022,25 @@
       obj.x = x; obj.y = y;
       commit();
     }
+  }
+
+  // Next corner while drawing a polygon. With Shift it lines up with the previous corner, horizontally or vertically.
+  function polyPoint(w, e) {
+    const pt = [snapv(w.x, e), snapv(w.y, e)], prev = polyDraft[polyDraft.length - 1];
+    if (e.shiftKey && prev) {
+      if (Math.abs(pt[0] - prev[0]) >= Math.abs(pt[1] - prev[1])) pt[1] = prev[1]; else pt[0] = prev[0];
+    }
+    return pt;
+  }
+
+  // Shift while dragging a corner: square it up with its two neighbours (in the polygon's own frame),
+  // each along whichever axis is nearer; if both ask for the same axis the closer neighbour wins.
+  function squareUp(l, prev, next) {
+    const axis = n => Math.abs(l.x - n[0]) < Math.abs(l.y - n[1]) ? 0 : 1, at = i => i ? l.y : l.x;
+    const ap = axis(prev), an = axis(next), out = [l.x, l.y];
+    if (ap !== an) { out[ap] = prev[ap]; out[an] = next[an]; }
+    else out[ap] = (Math.abs(at(ap) - prev[ap]) <= Math.abs(at(ap) - next[ap]) ? prev : next)[ap];
+    return out;
   }
 
   // Turns the corners clicked with the polygon tool into an object and selects it.
@@ -2088,7 +2107,7 @@
       return commit();
     }
     if (tool === 'polygon') {
-      const pt = [snapv(w.x, e), snapv(w.y, e)], first = polyDraft[0] && S(polyDraft[0][0], polyDraft[0][1]);
+      const pt = polyPoint(w, e), first = polyDraft[0] && S(polyDraft[0][0], polyDraft[0][1]);
       if (polyDraft.length >= 3 && Math.hypot(first[0] - p.x, first[1] - p.y) <= 9) return finishPolygon();
       polyDraft.push(pt);
       return render();
@@ -2229,7 +2248,7 @@
 
     if (!drag) {
       if (tool === 'polygon' && polyDraft.length) {
-        polyHover = [snapv(w.x, e), snapv(w.y, e)];
+        polyHover = polyPoint(w, e);
         render();
       }
       if (OPENING_TOOLS.includes(tool)) {
@@ -2264,8 +2283,8 @@
       const dx = snapv(w.x - drag.w0.x, e), dy = snapv(w.y - drag.w0.y, e), o0 = drag.orig;
       Object.assign(drag.o, { x1: o0.x1 + dx, y1: o0.y1 + dy, x2: o0.x2 + dx, y2: o0.y2 + dy });
     } else if (drag.kind === 'movevertex') {
-      const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) });
-      drag.o.points[drag.index] = [l.x, l.y];
+      const l = objToLocal(drag.o, { x: snapv(w.x, e), y: snapv(w.y, e) }), pts = drag.o.points, n = pts.length;
+      pts[drag.index] = e.shiftKey ? squareUp(l, pts[(drag.index + n - 1) % n], pts[(drag.index + 1) % n]) : [l.x, l.y];
     } else if (drag.kind === 'resizecompass') {
       // The centre stays put; the dragged corner sets the diameter.
       const l = objToLocal(drag.o, w);
