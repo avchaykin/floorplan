@@ -80,7 +80,7 @@
     #stage { grid-area: stage; position: relative; background: #fff; min-width: 0; min-height: 0; }
     #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
     #canvas.tool-select { cursor: default; }
-    #canvas.tool-wall, #canvas.tool-door, #canvas.tool-doorway, #canvas.tool-window, #canvas.tool-object { cursor: crosshair; }
+    #canvas.tool-wall, #canvas.tool-door, #canvas.tool-doorway, #canvas.tool-window, #canvas.tool-object, #canvas.tool-mark { cursor: crosshair; }
     #canvas.panning { cursor: grabbing; }
     #canvas text { font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
@@ -189,6 +189,7 @@
       <button data-tool="doorway" title="Add doorway without door (O)" aria-label="Add doorway without door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,3C10.89,3 10,3.89 10,5H3V19H2V21H22V19H21V5C21,3.89 20.11,3 19,3H12M12,5H19V19H12V5M5,11H7V13H5V11Z"/></svg></button>
       <button data-tool="window" title="Add window (N)" aria-label="Add window"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M21 20V2H3V20H1V23H23V20M19 4V11H13V4M5 4H11V11H5M5 20V13H11V20M13 20V13H19V20Z"/></svg></button>
       <button data-tool="object" title="Add a free object, e.g. furniture (B)" aria-label="Add a free object, e.g. furniture"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 9V7C19 5.35 17.65 4 16 4H8C6.35 4 5 5.35 5 7V9C3.35 9 2 10.35 2 12V17C2 18.65 3.35 20 5 20V22H7V20H17V22H19V20C20.65 20 22 18.65 22 17V12C22 10.35 20.65 9 19 9M7 7C7 6.45 7.45 6 8 6H16C16.55 6 17 6.45 17 7V9.78C16.39 10.33 16 11.12 16 12V14H8V12C8 11.12 7.61 10.33 7 9.78V7M20 17C20 17.55 19.55 18 19 18H5C4.45 18 4 17.55 4 17V12C4 11.45 4.45 11 5 11S6 11.45 6 12V16H18V12C18 11.45 18.45 11 19 11S20 11.45 20 12V17Z"/></svg></button>
+      <button data-tool="mark" title="Add ceiling height mark (H)" aria-label="Add ceiling height mark"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,7L17,12H14V16H10V12H7L12,7M19,21H5A2,2 0 0,1 3,19V5A2,2 0 0,1 5,3H19A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21M19,19V5H5V19H19Z"/></svg></button>
     </nav>
     <button id="btnFolder" title="Choose the folder where plans are stored">Open folder…</button>
     <select id="planSelect" title="Plan file" disabled></select>

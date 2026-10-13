@@ -289,7 +289,7 @@
   // ---------- Document ----------
 
   function newDoc() {
-    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings(), layers: defaultLayers() };
+    return { format: 'floorplan', version: 1, units: 'mm', nextId: 1, walls: [], openings: [], objects: [], marks: [], hiddenDimensions: [], realDimensions: {}, settings: defaultSettings(), layers: defaultLayers() };
   }
 
   function normalizeDoc(d) {
@@ -316,7 +316,9 @@
     out.layers = cleanLayers(d.layers, out.settings);
     const objectLayers = out.layers.filter(l => l.kind === 'objects');
     for (const o of out.objects) if (!objectLayers.some(l => l.id === o.layer)) o.layer = objectLayers[0].id;
-    const ids = out.walls.concat(out.openings, out.objects).map(o => +o.id || 0)
+    out.marks = (d.marks || []).filter(m => [m.x, m.y, m.height].every(Number.isFinite) && m.height > 0)
+      .map(m => ({ id: m.id, x: m.x, y: m.y, height: m.height }));
+    const ids = out.walls.concat(out.openings, out.objects, out.marks).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     out.nextId = Math.max(d.nextId || 1, 1, ...ids.map(i => i + 1));
     return out;
@@ -326,10 +328,11 @@
     door: { frameSize: 900, doorSize: 800 },
     doorway: { frameSize: 900 },
     window: { size: 1200, sillSize: 1300, sillDepth: 200 },
+    mark: { height: 2700 },
   };
   try {
     const saved = JSON.parse(localStorage.getItem(DEFAULTS_KEY) || '{}');
-    for (const t of OPENING_TOOLS) Object.assign(defaults[t], saved[t]);
+    for (const t of Object.keys(defaults)) Object.assign(defaults[t], saved[t]);
   } catch (e) { /* keep built-in defaults */ }
 
   let doc = newDoc();
@@ -364,7 +367,7 @@
     const a = layerById(activeLayer);
     return a && a.kind === 'objects' ? a : doc.layers.slice().reverse().find(l => l.kind === 'objects');
   }
-  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length;
+  const isEmpty = () => !doc.walls.length && !doc.openings.length && !doc.objects.length && !doc.marks.length;
 
   function resetHistory() {
     history = [JSON.stringify(doc)];
@@ -447,7 +450,7 @@
     const boxes = doc.walls.concat(doc.objects.map(o => {
       const d = Math.hypot(o.w, o.h);    // covers the object at any rotation
       return { x: o.x - d / 2, y: o.y - d / 2, w: d, h: d };
-    }));
+    }), doc.marks.map(m => ({ x: m.x - 300, y: m.y - 150, w: 600, h: 300 })));
     if (!boxes.length || !r.width) {
       view.scale = 0.08; view.ox = 80; view.oy = 80;
       return;
@@ -579,6 +582,33 @@
       }
     }
     return g;
+  }
+
+  // ---------- Ceiling height marks ----------
+  // A height value with an up-triangle in a rounded box. Lives on the dimensions layer and uses its font and colours.
+
+  function markBox(m) {
+    const size = doc.settings.dimFontSize, text = fmt(m.height), [cx, cy] = S(m.x, m.y);
+    const tri = size * 0.9, pad = size * 0.55, gap = size * 0.35;
+    const w = pad + tri + gap + text.length * size * 0.6 + pad, hgt = size * 1.9;
+    return { cx, cy, x: cx - w / 2, y: cy - hgt / 2, w, h: hgt, text, size, tri, pad, gap };
+  }
+
+  function markSvg(m, selected) {
+    const st = doc.settings, b = markBox(m);
+    const color = selected ? ACCENT : st.dimColor, textColor = selected ? ACCENT : st.dimFontColor;
+    const tx = b.x + b.pad, half = b.tri / 2, top = b.cy - b.tri * 0.43, bottom = b.cy + b.tri * 0.43;
+    return `<rect x="${f(b.x)}" y="${f(b.y)}" width="${f(b.w)}" height="${f(b.h)}" rx="${f(b.h * 0.28)}" fill="#fff" stroke="${color}" stroke-width="${selected ? 2 : 1.2}"/>` +
+      `<path d="${poly([[tx + half, top], [tx + b.tri, bottom], [tx, bottom]])}" fill="${textColor}"/>` +
+      `<text x="${f(tx + b.tri + b.gap)}" y="${f(b.cy)}" style="font-family:${fontCss(st.dimFont)};font-size:${b.size}px" text-anchor="start" dominant-baseline="central" fill="${textColor}">${b.text}</text>`;
+  }
+
+  function hitMark(p) {
+    for (let i = doc.marks.length - 1; i >= 0; i--) {
+      const b = markBox(doc.marks[i]);
+      if (p.x >= b.x - 2 && p.x <= b.x + b.w + 2 && p.y >= b.y - 2 && p.y <= b.y + b.h + 2) return doc.marks[i];
+    }
+    return null;
   }
 
   // ---------- Dimensions ----------
@@ -806,6 +836,7 @@
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
+        for (const m of doc.marks) h.push(markSvg(m, !!sel && sel.kind === 'mark' && sel.id === m.id));
       } else {
         for (const o of doc.objects) if (o.layer === layer.id) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
       }
@@ -861,6 +892,7 @@
     if (sel.kind === 'wall') return doc.walls.find(w => w.id === sel.id) || null;
     if (sel.kind === 'opening') return doc.openings.find(o => o.id === sel.id) || null;
     if (sel.kind === 'object') return doc.objects.find(o => o.id === sel.id) || null;
+    if (sel.kind === 'mark') return doc.marks.find(m => m.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
     return walls.segments.find(s => s.key === sel.key) || null;
   }
@@ -976,7 +1008,7 @@
     if (sel && !obj) sel = null;
     if (sel) {
       // Nothing stays selected on a layer that has been hidden or frozen.
-      const layer = sel.kind === 'object' ? obj && objLayer(obj) : specialLayer(sel.kind === 'dim' ? 'dimensions' : 'walls');
+      const layer = sel.kind === 'object' ? obj && objLayer(obj) : specialLayer(sel.kind === 'dim' || sel.kind === 'mark' ? 'dimensions' : 'walls');
       if (layer && !usable(layer)) sel = null;
     }
     if (sel || tool !== 'select') { showSettings = false; layerPanel = null; }
@@ -999,10 +1031,17 @@
         '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
       h = `<h3>New ${TITLES[tool].toLowerCase()}</h3>${openingFields(tool, defaults[tool])}<p>Click on a wall to place it. The side of the wall you click on sets the ${tool === 'window' ? 'sill side' : 'opening direction'}.</p>`;
+    } else if (tool === 'mark') {
+      h = '<h3>New ceiling height mark</h3>' + field('Ceiling height', 'height', defaults.mark.height) +
+        '<p>Click on the plan to place the mark. It belongs to the Dimensions layer and uses the dimension font and colours.</p>';
     } else if (tool === 'object') {
       h = '<h3>Object</h3><p>Drag to draw a rectangle, or click to drop a standard one. Use it for furniture, appliances and the like.</p><p>Objects do not attach to walls.</p>';
     } else if (tool === 'wall') {
       h = '<h3>Wall</h3><p>Drag to draw a rectangle. Rectangles that touch or overlap merge into one wall.</p><p>Hold Alt to draw without snapping.</p>';
+    } else if (sel && sel.kind === 'mark') {
+      h = '<h3>Ceiling height mark</h3>' + field('Ceiling height', 'height', obj.height) + field('X', 'x', obj.x) + field('Y', 'y', obj.y) +
+        '<p>Drag or use the arrow keys to move it.</p>' +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'object') {
       h = '<h3>Object</h3>' +
         `<label class="field">Name<input type="text" data-name value="${esc(obj.name)}" placeholder="e.g. Sofa"></label>` +
@@ -1123,7 +1162,7 @@
     }
     const k = e.target.dataset.k;
     if (!k) return;
-    const toolMode = OPENING_TOOLS.includes(tool);
+    const toolMode = tool in defaults;
     const target = toolMode ? defaults[tool] : selectedObject();
     if (!target) return;
     let v = Math.round((Number(e.target.value) || 0) * UNITS[doc.units].factor);
@@ -1193,6 +1232,7 @@
     if (!sel) return;
     if (sel.kind === 'wall') doc.walls = doc.walls.filter(w => w.id !== sel.id);
     else if (sel.kind === 'object') doc.objects = doc.objects.filter(o => o.id !== sel.id);
+    else if (sel.kind === 'mark') doc.marks = doc.marks.filter(m => m.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
     else if (sel.kind === 'dim') {
       const dim = selectedObject();
@@ -1211,6 +1251,7 @@
     select: 'Click to select · drag or arrow keys to move · drag empty space to pan · pinch or ⌘-scroll to zoom · Delete removes',
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
+    mark: 'Click to place a ceiling height mark · Esc to finish',
     door: 'Click a wall to place a door · Esc to finish',
     doorway: 'Click a wall to place a doorway · Esc to finish',
     window: 'Click a wall to place a window · Esc to finish',
@@ -1252,7 +1293,7 @@
       rebuild();
       remapHidden(dx, dy);
       commit();
-    } else if (sel.kind === 'object') {
+    } else if (sel.kind === 'object' || sel.kind === 'mark') {
       obj.x += dx; obj.y += dy;
       commit();
     } else if (sel.kind === 'opening') {
@@ -1282,12 +1323,16 @@
       svg.classList.add('panning');
       return;
     }
-    const toolLayer = tool === 'object' ? targetLayer() : tool !== 'select' ? specialLayer('walls') : null;
+    const toolLayer = tool === 'object' ? targetLayer() : tool === 'mark' ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
     if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
       const a = snapPoint(w, e);
       drag = { kind: 'newwall', a, b: a };
       return;
+    }
+    if (tool === 'mark') {
+      doc.marks.push({ id: doc.nextId++, x: snapv(w.x, e), y: snapv(w.y, e), height: defaults.mark.height });
+      return commit();
     }
     if (tool === 'object') {
       const a = { x: snapv(w.x, e), y: snapv(w.y, e) };
@@ -1331,6 +1376,12 @@
           return renderAll();
         }
       } else if (layer.kind === 'dimensions') {
+        const mark = hitMark(p);
+        if (mark) {
+          sel = { kind: 'mark', id: mark.id };
+          drag = { kind: 'movemark', o: mark, w0: w, orig: { x: mark.x, y: mark.y } };
+          return renderAll();
+        }
         const dim = hitDim(p);
         if (dim) {
           sel = { kind: 'dim', key: dim.key };
@@ -1380,7 +1431,7 @@
       drag.b = snapPoint(w, e);
     } else if (drag.kind === 'newobject') {
       drag.b = { x: snapv(w.x, e), y: snapv(w.y, e) };
-    } else if (drag.kind === 'moveobject') {
+    } else if (drag.kind === 'moveobject' || drag.kind === 'movemark') {
       drag.o.x = drag.orig.x + snapv(w.x - drag.w0.x, e);
       drag.o.y = drag.orig.y + snapv(w.y - drag.w0.y, e);
     } else if (drag.kind === 'rotateobject') {
@@ -1454,7 +1505,7 @@
       if (d.dx || d.dy) remapHidden(d.dx, d.dy);
       return commit();
     }
-    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject'].includes(d.kind)) return commit();
+    if (['resize', 'moveopening', 'moveobject', 'resizeobject', 'rotateobject', 'movemark'].includes(d.kind)) return commit();
     render();
   }
   svg.addEventListener('pointerup', endDrag);
@@ -1487,11 +1538,11 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && ['wall', 'opening', 'object'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && ['wall', 'opening', 'object', 'mark'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', h: 'mark' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
