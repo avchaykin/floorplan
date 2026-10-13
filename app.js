@@ -161,7 +161,7 @@
     courier: ['Courier New', "'Courier New', Courier, monospace"],
     mono: ['Monospace', 'ui-monospace, Menlo, monospace'],
   };
-  const DIM_ENDS = { arrow: 'Arrows', tick: 'Ticks', dot: 'Dots', none: 'None' };
+  const DIM_ENDS = { arrow: 'Arrows, filled', vNarrow: 'V-arrows, narrow', vWide: 'V-arrows, wide', tick: 'Ticks', dot: 'Dots', none: 'None' };
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
@@ -555,6 +555,13 @@
     if (kind === 'tick') {
       const tx = (dx - dy) * 3.5, ty = (dy + dx) * 3.5;
       return line([p[0] - tx, p[1] - ty], [p[0] + tx, p[1] + ty], `stroke="${color}" stroke-width="1.2"`);
+    }
+    if (kind === 'vNarrow' || kind === 'vWide') {
+      // Open arrowhead: two strokes meeting at the tip.
+      const reach = kind === 'vNarrow' ? 9 : 7, half = kind === 'vNarrow' ? 2.6 : 5;
+      const cx = p[0] + dx * reach, cy = p[1] + dy * reach;
+      const pts = [[cx - dy * half, cy + dx * half], p, [cx + dy * half, cy - dx * half]];
+      return `<path d="M${pts.map(q => f(q[0]) + ' ' + f(q[1])).join('L')}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
     }
     const bx = p[0] + dx * 8, by = p[1] + dy * 8;
     return `<path d="${poly([p, [bx - dy * 2.8, by + dx * 2.8], [bx + dy * 2.8, by - dx * 2.8]])}" fill="${color}"/>`;
