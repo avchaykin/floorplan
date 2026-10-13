@@ -72,10 +72,9 @@
     #saveStatus.err { color: var(--err); }
 
     #tools { display: flex; gap: 4px; padding: 0 10px 0 4px; margin-right: 4px; border-right: 1px solid var(--border); }
-    #tools button { display: flex; align-items: center; gap: 5px; padding: 4px 7px; }
+    #tools button { display: flex; align-items: center; padding: 4px 6px; }
     #tools button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
     #tools svg { display: block; pointer-events: none; }
-    kbd { font: 10px ui-monospace, monospace; opacity: .6; }
 
     #stage { grid-area: stage; position: relative; background: #fff; min-width: 0; min-height: 0; }
     #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
@@ -160,13 +159,14 @@
 <body>
   <header id="topbar">
     <strong class="brand">Floorplan</strong>
+    <!-- Tool icons: Material Design Icons (pictogrammers.com), Apache License 2.0 -->
     <nav id="tools">
-      <button data-tool="select" title="Select / move (V)" aria-label="Select / move"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5l10.5 7.5-4.6 1 2.6 5.2-2 1-2.6-5.2L5 15.5z" fill="currentColor" stroke="none"/></svg><kbd>V</kbd></button>
-      <button data-tool="wall" title="Draw wall rectangle (W)" aria-label="Draw wall rectangle"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="16" height="6" fill="currentColor" stroke="none"/></svg><kbd>W</kbd></button>
-      <button data-tool="door" title="Add door (D)" aria-label="Add door"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 15.5h3M15 15.5h3" stroke-width="3" stroke-linecap="butt"/><path d="M5 15.5V5.5"/><path d="M5 5.5a10 10 0 0 1 10 10" stroke-width="1" stroke-dasharray="2 2"/></svg><kbd>D</kbd></button>
-      <button data-tool="doorway" title="Add doorway without door (O)" aria-label="Add doorway without door"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 10h5M13.5 10h5" stroke-width="5" stroke-linecap="butt"/><path d="M6.5 7.5v5M13.5 7.5v5" stroke-width="1"/></svg><kbd>O</kbd></button>
-      <button data-tool="window" title="Add window (N)" aria-label="Add window"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="16" height="6"/><path d="M2 10h16" stroke-width="1"/></svg><kbd>N</kbd></button>
-      <button data-tool="object" title="Add a free object, e.g. furniture (B)" aria-label="Add a free object, e.g. furniture"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="6" width="13" height="8" rx="1" transform="rotate(-20 10 10)"/></svg><kbd>B</kbd></button>
+      <button data-tool="select" title="Select / move (V)" aria-label="Select / move"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M13.64,21.97C13.14,22.21 12.54,22 12.31,21.5L10.13,16.76L7.62,18.78C7.45,18.92 7.24,19 7,19A1,1 0 0,1 6,18V3A1,1 0 0,1 7,2C7.24,2 7.47,2.09 7.64,2.23L7.65,2.22L19.14,11.86C19.57,12.22 19.62,12.85 19.27,13.27C19.12,13.45 18.91,13.57 18.7,13.61L15.54,14.23L17.74,18.96C18,19.46 17.76,20.05 17.26,20.28L13.64,21.97Z"/></svg></button>
+      <button data-tool="wall" title="Draw wall rectangle (W)" aria-label="Draw wall rectangle"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3,16H12V21H3V16M2,10H8V15H2V10M9,10H15V15H9V10M16,10H22V15H16V10M13,16H21V21H13V16M3,4H11V9H3V4M12,4H21V9H12V4Z"/></svg></button>
+      <button data-tool="door" title="Add door (D)" aria-label="Add door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M16,11H18V13H16V11M12,3H19C20.11,3 21,3.89 21,5V19H22V21H2V19H10V5C10,3.89 10.89,3 12,3M12,5V19H19V5H12Z"/></svg></button>
+      <button data-tool="doorway" title="Add doorway without door (O)" aria-label="Add doorway without door"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12,3C10.89,3 10,3.89 10,5H3V19H2V21H22V19H21V5C21,3.89 20.11,3 19,3H12M12,5H19V19H12V5M5,11H7V13H5V11Z"/></svg></button>
+      <button data-tool="window" title="Add window (N)" aria-label="Add window"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M21 20V2H3V20H1V23H23V20M19 4V11H13V4M5 4H11V11H5M5 20V13H11V20M13 20V13H19V20Z"/></svg></button>
+      <button data-tool="object" title="Add a free object, e.g. furniture (B)" aria-label="Add a free object, e.g. furniture"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 9V7C19 5.35 17.65 4 16 4H8C6.35 4 5 5.35 5 7V9C3.35 9 2 10.35 2 12V17C2 18.65 3.35 20 5 20V22H7V20H17V22H19V20C20.65 20 22 18.65 22 17V12C22 10.35 20.65 9 19 9M7 7C7 6.45 7.45 6 8 6H16C16.55 6 17 6.45 17 7V9.78C16.39 10.33 16 11.12 16 12V14H8V12C8 11.12 7.61 10.33 7 9.78V7M20 17C20 17.55 19.55 18 19 18H5C4.45 18 4 17.55 4 17V12C4 11.45 4.45 11 5 11S6 11.45 6 12V16H18V12C18 11.45 18.45 11 19 11S20 11.45 20 12V17Z"/></svg></button>
     </nav>
     <button id="btnFolder" title="Choose the folder where plans are stored">Open folder…</button>
     <select id="planSelect" title="Plan file" disabled></select>
