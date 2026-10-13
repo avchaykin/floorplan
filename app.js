@@ -281,6 +281,9 @@
   // Geometry is always stored in mm; the unit only changes how lengths are shown and typed.
   const UNITS = { mm: { factor: 1, digits: 0, step: 10 }, cm: { factor: 10, digits: 1, step: 1 }, m: { factor: 1000, digits: 3, step: 0.01 } };
   const SNAPS = [1, 5, 10, 50, 100];
+  // Written into every saved plan so a file can be traced back to the app that produced it.
+  // `commit` is the commit this version was built on: a file cannot contain its own hash, so bump both when releasing.
+  const APP = { name: 'Floorplan', version: '1.0.1', commit: '6a52e67', repository: 'https://github.com/avchaykin/floorplan' };
   const DRAFT_KEY = 'floorplan-draft', DEFAULTS_KEY = 'floorplan-defaults', LAST_FILE_KEY = 'floorplan-last-file';
 
   // ---------- Document ----------
@@ -1566,7 +1569,8 @@
     clearTimeout(saveTimer);
     if (!dir || !fileName || !dirty) return saveChain;
     dirty = false;
-    const name = fileName, text = JSON.stringify(doc, null, 2) + '\n', folder = dir;
+    const { format, version, ...rest } = doc;
+    const name = fileName, text = JSON.stringify({ format, version, app: APP, ...rest }, null, 2) + '\n', folder = dir;
     saveChain = saveChain.then(async () => {
       const fh = await folder.getFileHandle(name, { create: true });
       const out = await fh.createWritable();
@@ -1791,6 +1795,10 @@
   })();
 
   // ---------- Start ----------
+
+  $('#brand').href = APP.repository;
+  $('#brand').title = `${APP.name} ${APP.version} (${APP.commit}) — open the repository on GitHub`;
+
 
   try {
     const draft = localStorage.getItem(DRAFT_KEY);
