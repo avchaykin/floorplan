@@ -264,7 +264,7 @@
   const MEASURE_TYPES = ['size', 'object', 'wall'];
 
   // Object settings a layer may override; everything else is plan-wide.
-  const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objLabelMinSize', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
+  const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objFontMinSize', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
 
   // Title settings can be overridden on every layer, special ones included.
   const TITLE_SETTING_KEYS = ['titleFont', 'titleFontSize', 'titleFontColor'];
@@ -306,7 +306,7 @@
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    const out = { titleFont: 'system', titleFontSize: 18, wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8, objLabelMinSize: 0 };
+    const out = { titleFont: 'system', titleFontSize: 18, wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8, objFontMinSize: 7 };
     for (const k of Object.keys(THEME_COLOURS)) out[k] = { light: null, dark: null };   // colours: automatic, i.e. from the theme
     return out;
   }
@@ -362,7 +362,7 @@
     const out = defaultSettings(), src = raw || {};
     for (const k of COLOUR_KEYS) out[k] = toPair(src[k], OLD_DEFAULT_COLOURS[k]);
     if (Number.isFinite(src.objBorderSize)) out.objBorderSize = Math.min(Math.max(Math.round(src.objBorderSize * 10) / 10, 0), 10);
-    if (Number.isFinite(src.objLabelMinSize)) out.objLabelMinSize = Math.min(Math.max(Math.round(src.objLabelMinSize), 0), 100000);
+    if (Number.isFinite(src.objFontMinSize)) out.objFontMinSize = Math.min(Math.max(Math.round(src.objFontMinSize * 2) / 2, 4), 40);
     if (Number.isFinite(src.objHatchSpacing)) out.objHatchSpacing = Math.min(Math.max(Math.round(src.objHatchSpacing), 3), 60);
     if (FILLS[src.objFillStyle]) out.objFillStyle = src.objFillStyle;
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
@@ -869,16 +869,21 @@
       objectFillSvg(o, pw, ph) +
       shapeEl(o, pw, ph, `fill="none" stroke="${border ? stroke : 'none'}" stroke-width="${border}" stroke-linejoin="round"${preview ? ' stroke-dasharray="5 3"' : ''}`);
     const hatched = (o.fillStyle || st.objFillStyle) !== 'solid';
-    // Name and size, as many lines as fit; the text always turns with the object.
-    const size = st.objFontSize, showName = !!o.name && !o.hideName;
+    // Name and size; the text always turns with the object. Text that does not fit is made smaller, down to the
+    // smallest font size; if it still does not fit the size line goes, then the name.
+    const showName = !!o.name && !o.hideName;
     const lines = [showName && o.name, !o.hideSize && `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
-    const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * (showName && t === o.name ? 0.66 : 0.6) + 6);
-    // Below the minimum size (its shorter side, in mm) an object shows no text at all.
-    const big = Math.min(o.w, o.h) >= st.objLabelMinSize;
-    const count = !big ? 0 : fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
+    const largest = n => Math.min(st.objFontSize, (ph - 4) / (n * 1.25),
+      ...lines.slice(0, n).map(t => (pw - 6) / (t.length * (showName && t === o.name ? 0.66 : 0.6))));
+    const smallest = Math.min(st.objFontMinSize, st.objFontSize);
+    let count = 0, size = st.objFontSize;
+    for (let n = lines.length; n > 0; n--) {
+      const fit = Math.floor(largest(n) * 2) / 2;
+      if (fit >= smallest) { count = n; size = fit; break; }
+    }
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
-      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="${PAPER}" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
+      g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ` stroke="${PAPER}" stroke-width="4" paint-order="stroke"` : ''}>${esc(lines[i])}</text>`;
     }
     g += '</g>';
     if (selected && !objLayer(o).frozen) {
@@ -1594,7 +1599,7 @@
     c.number('dimDistance', 'Distance from wall', 20, 500, '%');
   const titleSettingRows = c => c.choice('titleFont', 'Font', fontChoices()) + c.number('titleFontSize', 'Font size', 6, 200, 'px') + c.colour('titleFontColor', 'Font colour');
   const objectSettingRows = c => c.choice('objFont', 'Font', fontChoices()) + c.number('objFontSize', 'Font size', 6, 40, 'px') +
-    c.colour('objFontColor', 'Font colour') + c.length('objLabelMinSize', 'No text below') + c.choice('objFillStyle', 'Fill style', Object.entries(FILLS)) + c.colour('objFillColor', 'Fill colour') +
+    c.colour('objFontColor', 'Font colour') + c.number('objFontMinSize', 'Smallest font size', 4, 40, 'px', 0.5) + c.choice('objFillStyle', 'Fill style', Object.entries(FILLS)) + c.colour('objFillColor', 'Fill colour') +
     c.number('objHatchSpacing', 'Hatch spacing', 3, 60, 'px') + c.number('objBorderSize', 'Border size', 0, 10, 'px', 0.5) + c.colour('objBorderColor', 'Border colour');
 
   function layerPanelHtml(layer) {
@@ -1942,7 +1947,7 @@
       '<div class="settings-cols">' +
       '<section><h4>Walls</h4>' + wallSettingRows(c) + '<h4>Dimensions</h4>' + dimSettingRows(c) + '</section>' +
       '<section><h4>Objects</h4>' + objectSettingRows(c) +
-      '<p>“No text below”: objects whose shorter side is smaller than this show neither name nor size. 0 shows text whenever it fits.</p>' +
+      '<p>Text that does not fit in an object is made smaller, down to the smallest font size; below that the size, then the name, is left out.</p>' +
       '<p>Object settings can also be set per layer (select a layer, then the cog).</p></section>' +
       '<section><h4>Titles</h4>' + titleSettingRows(c) +
       '<h4>Google Fonts</h4>' +

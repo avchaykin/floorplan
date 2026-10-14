@@ -42,7 +42,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 - A layer can be hidden, or frozen (selectable but read-only). Layer order is the drawing order.
 - Object and title defaults can be set for the whole plan or per layer.
 - Plan settings open in their own window (Settings button), laid out in columns; changes show on the plan straight away.
-- Objects smaller than a set size (their shorter side) can show no text at all.
+- Object text that does not fit is shrunk down to a smallest font size you set, and only then left out.
 
 **Appearance**
 - Light and dark mode. Every colour has a light and a dark value; set one and the other is derived, or set both.
