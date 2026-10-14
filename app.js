@@ -2185,7 +2185,7 @@
 
   const HINTS = {
     select: 'Click to select · drag or arrow keys to move (Shift: one axis) · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
-    wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to finish',
+    wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to cancel',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     ellipse: 'Drag to draw a round object, or click to drop one · Esc to cancel',
     polygon: 'Click each corner (Shift keeps sides horizontal or vertical) · click the first corner, double-click or press Enter to finish · Esc to discard',
@@ -2647,7 +2647,11 @@
     }
     if (d.kind === 'newwall') {
       const r = dragRect(d);
-      if (r.w > 0 && r.h > 0) doc.walls.push(Object.assign({ id: doc.nextId++ }, r));
+      if (!(r.w > 0 && r.h > 0)) return render();
+      const wall = Object.assign({ id: doc.nextId++ }, r);
+      doc.walls.push(wall);
+      setTool('select');
+      sel = { kind: 'wall', id: wall.id };
       return commit();
     }
     if (d.kind === 'movewall') {
