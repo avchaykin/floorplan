@@ -159,11 +159,11 @@
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   const PALETTES = {
     light: {
-      ui: { bg: '#f3f4f6', surface: '#ffffff', border: '#d5d8dd', text: '#1f2328', muted: '#6b7280', accent: '#1a73e8', 'on-accent': '#ffffff', hover: '#eef1f5', active: '#e3eefd', off: '#b6bcc5', warn: '#b45309', err: '#c62828', ok: '#2e7d32', font: SANS },
+      ui: { bg: '#f3f4f6', surface: '#ffffff', border: '#d5d8dd', text: '#1f2328', muted: '#6b7280', accent: '#1a73e8', 'on-accent': '#ffffff', hover: '#eef1f5', active: '#e3eefd', off: '#b6bcc5', warn: '#b45309', err: '#c62828', ok: '#2e7d32', font: SANS, 'js-key': '#1d4ed8', 'js-str': '#15803d', 'js-num': '#b45309', 'js-lit': '#7c3aed' },
       canvas: { paper: '#ffffff', gridMinor: '#eef0f3', gridMajor: '#d9dde3', ink: '#2b2b2b', accent: '#1a73e8', jamb: '#9aa0a6', wall: '#4d4d4d', dim: '#5f6b7a', dimText: '#5f6b7a', objText: '#5f6b7a', objFill: '#ffffff', objBorder: '#2b2b2b', note: '#fff3a3' },
     },
     dark: {
-      ui: { bg: '#16181c', surface: '#1f2227', border: '#363b44', text: '#e6e8eb', muted: '#9aa3af', accent: '#5aa2ff', 'on-accent': '#0b1220', hover: '#2a2e35', active: '#253a5a', off: '#5b626d', warn: '#f0a35a', err: '#ff7b72', ok: '#6fcf7c', font: SANS },
+      ui: { bg: '#16181c', surface: '#1f2227', border: '#363b44', text: '#e6e8eb', muted: '#9aa3af', accent: '#5aa2ff', 'on-accent': '#0b1220', hover: '#2a2e35', active: '#253a5a', off: '#5b626d', warn: '#f0a35a', err: '#ff7b72', ok: '#6fcf7c', font: SANS, 'js-key': '#7cb7ff', 'js-str': '#8fd694', 'js-num': '#f0b46a', 'js-lit': '#c79bff' },
       canvas: { paper: '#1b1d21', gridMinor: '#23262b', gridMajor: '#30343b', ink: '#d7dae0', accent: '#5aa2ff', jamb: '#6b7280', wall: '#b9bec7', dim: '#9aa3af', dimText: '#c3c9d2', objText: '#c3c9d2', objFill: '#262a30', objBorder: '#d7dae0', note: '#6a5d1c' },
     },
   };
@@ -537,6 +537,7 @@
   let panelFocus = null;        // selector of a field to focus once the panel has been redrawn
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
   let ghost = null;     // opening preview while a door/window tool is active
+  let jsonEd = null;    // the JSON editor, once it has been set up
   let snap = 10;
   let spaceDown = false;
   const view = { scale: 0.08, ox: 80, oy: 80 };   // screen px = mm * scale + offset
@@ -2220,6 +2221,7 @@
     if (!keepPanel) renderPanel();   // may drop a selection that is no longer allowed, so it runs before drawing
     render();
     syncUnits();
+    refreshJson();
     $('#btnUndo').disabled = hIndex <= 0;
     $('#btnRedo').disabled = hIndex >= history.length - 1;
   }
@@ -2681,7 +2683,7 @@
   }, { passive: false });
 
   window.addEventListener('keydown', e => {
-    if (e.target.closest('input, select, textarea, dialog')) return;
+    if (e.target.closest('input, select, textarea, dialog, [contenteditable]')) return;
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); stepHistory(e.shiftKey ? 1 : -1); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); stepHistory(1); return; }
@@ -2731,6 +2733,245 @@
   }
   $('#btnCalc').onclick = () => showCalculator($('#calc').hidden);
   showCalculator(localStorage.getItem('floorplan-calc') === '1');
+  // ---------- JSON editor ----------
+  // The plan file as text, highlighted and foldable. Every valid edit is applied to the plan straight away.
+
+  const JSON_TOKEN = /("(?:[^"\\\n]|\\.)*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(true|false|null)|([{}[\],:])|(\n)|([^\S\n]+)|("(?:[^"\\\n]|\\.)*|[^\s{}[\],:"]+)/y;
+  const TOKEN_TYPES = [null, 'str', 'num', 'lit', 'punc', 'nl', 'ws', 'bad'];
+
+  function jsonTokens(text) {
+    const out = [];
+    let line = 1, m;
+    JSON_TOKEN.lastIndex = 0;
+    while (JSON_TOKEN.lastIndex < text.length && (m = JSON_TOKEN.exec(text))) {
+      out.push({ s: m[0], t: TOKEN_TYPES[m.findIndex((g, i) => i && g !== undefined)], line });
+      if (m[5]) line++;
+    }
+    return out;
+  }
+
+  // Marks object keys, pairs brackets and gives each container its path ("levels/0/walls"), which is how folds are remembered.
+  function jsonStructure(tokens) {
+    const opens = new Map(), stack = [];
+    tokens.forEach((tk, i) => {
+      const top = stack[stack.length - 1];
+      if (tk.t === 'str') {
+        let j = i + 1;
+        while (tokens[j] && (tokens[j].t === 'ws' || tokens[j].t === 'nl')) j++;
+        if (tokens[j] && tokens[j].s === ':') {
+          tk.t = 'key';
+          if (top && top.type === '{') try { top.key = JSON.parse(tk.s); } catch (e) { top.key = tk.s; }
+        }
+      } else if (tk.s === '{' || tk.s === '[') {
+        const path = !top ? '$' : top.path + '/' + (top.type === '[' ? top.index : top.key);
+        stack.push({ i, type: tk.s, path, index: 0, key: '' });
+      } else if (tk.s === ',' && top && top.type === '[') {
+        top.index++;
+      } else if (tk.s === '}' || tk.s === ']') {
+        if (!top || (top.type === '{') !== (tk.s === '}')) { tk.t = 'bad'; return; }
+        stack.pop();
+        opens.set(top.i, { close: i, path: top.path });
+      }
+    });
+    for (const f of stack) tokens[f.i].t = 'bad';   // never closed
+    return opens;
+  }
+
+  const JSON_CLASS = { key: 'jk', str: 'js', num: 'jn', lit: 'jl', punc: 'jp', bad: 'jx' };
+  function jsonHtml(text, errLine) {
+    const tokens = jsonTokens(text), opens = jsonStructure(tokens);
+    const rows = [{ line: 1 }];
+    let html = '';
+    for (let i = 0; i < tokens.length; i++) {
+      const tk = tokens[i], cls = JSON_CLASS[tk.t];
+      html += cls ? `<span class="${cls}">${esc(tk.s)}</span>` : esc(tk.s);
+      if (tk.t === 'nl') { rows.push({ line: tk.line + 1 }); continue; }
+      const open = opens.get(i);
+      if (!open || tokens[open.close].line === tk.line) continue;
+      const row = rows[rows.length - 1];
+      if (row.fold) continue;   // one fold arrow per line: the first container that starts on it
+      row.fold = open.path;
+      if (!jsonEd.folds.has(open.path)) continue;
+      row.folded = true;
+      const inner = tokens.slice(i + 1, open.close).map(t => t.s).join('');
+      const lines = tokens[open.close].line - tk.line - 1;
+      html += `<span class="jf" contenteditable="false" data-path="${esc(open.path)}" data-n="${lines} line${lines === 1 ? '' : 's'}"><i>${esc(inner)}</i></span>`;
+      i = open.close - 1;
+    }
+    const gutter = rows.map(r => `<div${r.line === errLine ? ' class="errline"' : ''}><span>${r.line}</span><b${r.fold ? ` data-fold="${esc(r.fold)}"` : ''}>${r.fold ? (r.folded ? '▸' : '▾') : ''}</b></div>`).join('');
+    return { html: html + '\n', gutter };
+  }
+
+  // Short arrays and objects stay on one line, so walls and points read as one row each.
+  function prettyJson(v, indent) {
+    indent = indent || '';
+    if (v === null || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+    const isArr = Array.isArray(v);
+    const items = isArr ? v.map(x => [null, x]) : Object.entries(v).filter(([, x]) => x !== undefined && typeof x !== 'function');
+    if (!items.length) return isArr ? '[]' : '{}';
+    const part = ([k, x], ind) => (isArr ? '' : JSON.stringify(k) + ': ') + prettyJson(x, ind);
+    const flat = isArr ? '[' + items.map(it => part(it, '')).join(', ') + ']' : '{ ' + items.map(it => part(it, '')).join(', ') + ' }';
+    if (flat.length + indent.length <= 90 && !flat.includes('\n')) return flat;
+    const inner = indent + '  ';
+    return (isArr ? '[' : '{') + '\n' + items.map(it => inner + part(it, inner)).join(',\n') + '\n' + indent + (isArr ? ']' : '}');
+  }
+
+  function caretOffset(root) {
+    const s = getSelection();
+    if (!s.rangeCount || !root.contains(s.focusNode)) return null;
+    const r = document.createRange();
+    r.setStart(root, 0);
+    r.setEnd(s.focusNode, s.focusOffset);
+    return r.toString().length;
+  }
+  function setCaret(root, off) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n, acc = 0;
+    while ((n = walker.nextNode())) {
+      if (n.parentNode.closest('.jf')) { acc += n.length; off = Math.max(off, acc); continue; }   // never inside folded text
+      if (off <= acc + n.length) { getSelection().collapse(n, off - acc); return; }
+      acc += n.length;
+    }
+  }
+
+  function jsonShow(text, keepCaret) {
+    const off = keepCaret ? caretOffset(jsonEd.code) : null;
+    const { html, gutter } = jsonHtml(text, jsonEd.errLine);
+    jsonEd.code.innerHTML = html;
+    jsonEd.gutter.innerHTML = gutter;
+    jsonEd.text = text;
+    if (off !== null) setCaret(jsonEd.code, off);
+  }
+  // The editor's text without the newline kept at its end (so the last line can be edited).
+  const editorText = () => jsonEd.code.textContent.replace(/\n$/, '');
+
+  function jsonStatus(text, cls) {
+    jsonEd.msg.textContent = text;
+    jsonEd.msg.className = cls || '';
+  }
+
+  function jsonApply() {
+    clearTimeout(jsonEd.timer);
+    jsonEd.timer = null;
+    let data, next;
+    jsonEd.errLine = null;
+    try { data = JSON.parse(jsonEd.text); } catch (err) {
+      const pos = /position (\d+)/.exec(err.message);
+      if (pos) jsonEd.errLine = jsonEd.text.slice(0, +pos[1]).split('\n').length;
+      jsonEd.invalid = true;
+      jsonShow(jsonEd.text, true);
+      return jsonStatus(err.message.replace(/^JSON\.parse: /, ''), 'err');
+    }
+    try { next = normalizeDoc(data); } catch (err) {
+      jsonEd.invalid = true;
+      jsonShow(jsonEd.text, true);
+      return jsonStatus('Not a floorplan: it needs "format": "floorplan" and a "levels" list.', 'err');
+    }
+    jsonEd.invalid = false;
+    const keep = sel;
+    doc = next;
+    sel = keep;
+    jsonEd.applying = true;
+    commit();
+    jsonEd.applying = false;
+    jsonEd.base = prettyJson(packDoc());
+    jsonShow(jsonEd.text, true);
+    jsonStatus('Applied to the plan', 'ok');
+  }
+
+  // Shows the plan as it is now, unless the text is being edited. Unapplied (invalid) text is kept until the plan itself changes.
+  function refreshJson(force) {
+    if (!jsonEd || jsonEd.pane.hidden || jsonEd.applying) return;
+    if (!force && (document.activeElement === jsonEd.code || jsonEd.timer)) return;
+    const text = prettyJson(packDoc());
+    if (!force && jsonEd.invalid && text === jsonEd.base) return;
+    if (jsonEd.invalid && !force) jsonStatus('The plan changed, so the unapplied edit was replaced.', '');
+    else if (force) jsonStatus('', '');
+    jsonEd.invalid = false;
+    jsonEd.errLine = null;
+    jsonEd.base = text;
+    if (text !== jsonEd.text || force) jsonShow(text, force && document.activeElement === jsonEd.code);
+  }
+
+  function showJson(on) {
+    jsonEd.pane.hidden = !on;
+    $('#btnJson').classList.toggle('on', on);
+    localStorage.setItem('floorplan-json', on ? '1' : '');
+    if (on) refreshJson(true);
+  }
+
+  (() => {
+    jsonEd = { pane: $('#jsonPane'), code: $('#jsonCode'), gutter: $('#jsonGutter'), msg: $('#jsonMsg'), folds: new Set(['$/settings']), text: '', base: '', timer: null, invalid: false, applying: false, errLine: null };
+    const { pane, code, gutter } = jsonEd;
+    try { pane.style.width = (+localStorage.getItem('floorplan-json-width') || 420) + 'px'; } catch (e) { /* default width */ }
+    code.addEventListener('input', e => {
+      if (e.isComposing) return;
+      jsonShow(editorText(), true);
+      clearTimeout(jsonEd.timer);
+      jsonEd.timer = setTimeout(jsonApply, 400);
+    });
+    code.addEventListener('blur', () => {
+      if (jsonEd.timer) jsonApply();
+      refreshJson();
+    });
+    code.addEventListener('keydown', e => {
+      const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+      if (mod && (k === 'z' || k === 'y')) {
+        // Undo and redo are the plan's, so canvas and text stay in step.
+        e.preventDefault();
+        if (jsonEd.timer) jsonApply();
+        stepHistory(k === 'y' || e.shiftKey ? 1 : -1);
+        refreshJson(true);
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        document.execCommand('insertText', false, '  ');
+      } else if (e.key === 'Enter') {
+        // Keep the indentation of the line, one step deeper after an opening bracket.
+        e.preventDefault();
+        const before = editorText().slice(0, caretOffset(code));
+        const lineText = before.slice(before.lastIndexOf('\n') + 1);
+        const indent = /^\s*/.exec(lineText)[0] + (/[{[]\s*$/.test(lineText) ? '  ' : '');
+        document.execCommand('insertText', false, '\n' + indent);
+      } else if (e.key === 'Escape') code.blur();
+    });
+    const toggleFold = path => {
+      if (jsonEd.folds.has(path)) jsonEd.folds.delete(path); else jsonEd.folds.add(path);
+      jsonShow(jsonEd.text, document.activeElement === code);
+    };
+    gutter.addEventListener('mousedown', e => {
+      const b = e.target.closest('[data-fold]');
+      if (b) { e.preventDefault(); toggleFold(b.dataset.fold); }
+    });
+    code.addEventListener('mousedown', e => {
+      const f = e.target.closest('.jf');
+      if (f) { e.preventDefault(); toggleFold(f.dataset.path); }
+    });
+    pane.querySelector('.json-head').addEventListener('click', e => {
+      const act = e.target.closest('[data-j]') && e.target.closest('[data-j]').dataset.j;
+      if (act === 'close') showJson(false);
+      else if (act === 'unfold') { jsonEd.folds.clear(); jsonShow(jsonEd.text, false); }
+      else if (act === 'fold') {
+        // Everything below the top level folds up.
+        const opens = jsonStructure(jsonTokens(jsonEd.text));
+        for (const o of opens.values()) if (o.path.split('/').length === 2) jsonEd.folds.add(o.path);
+        jsonShow(jsonEd.text, false);
+      } else if (act === 'format') refreshJson(true);
+    });
+    $('#jsonResize').addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const x0 = e.clientX, w0 = pane.offsetWidth;
+      const move = ev => { pane.style.width = Math.min(Math.max(w0 - (ev.clientX - x0), 260), window.innerWidth * 0.6) + 'px'; };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        localStorage.setItem('floorplan-json-width', String(pane.offsetWidth));
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    $('#btnJson').onclick = () => showJson(pane.hidden);
+  })();
+
   $('#btnUndo').onclick = () => stepHistory(-1);
   $('#btnRedo').onclick = () => stepHistory(1);
   $('#snapSelect').onchange = e => { snap = +e.target.value; render(); };
@@ -3217,6 +3458,7 @@
   resetHistory();
   fitView();
   setTool('select');
+  if (localStorage.getItem('floorplan-json') === '1') showJson(true);
   setStatus(isEmpty() ? 'Open a folder to save plans as JSON' : 'Draft restored — open a folder to save it', 'warn');
   restoreFolder().catch(err => setStatus('Folder error: ' + err.message, 'err'));
 })();

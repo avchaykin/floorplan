@@ -52,6 +52,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 - Undo and redo.
 - Export to PNG or PDF at up to 10 000 px on the long side.
 - A small calculator in the side panel.
+- A JSON view of the plan file, next to the canvas: highlighted, foldable and editable. Every valid edit is applied to the plan as you type; undo and redo work from the editor too.
 - A description field on everything, saved with the plan and never drawn.
 
 ## Controls

@@ -29,8 +29,8 @@
 
     body {
       display: grid;
-      grid-template: 44px 1fr 26px / 1fr 248px;
-      grid-template-areas: "top top" "stage panel" "status status";
+      grid-template: 44px 1fr 26px / 1fr auto 248px;
+      grid-template-areas: "top top top" "stage json panel" "status status status";
       font: 13px/1.4 var(--font);
       color: var(--text);
       background: var(--bg);
@@ -135,6 +135,30 @@
     #panel .side button { padding: 0 3px; border: none; background: none; color: var(--accent); }
     #panel .side button:disabled { visibility: hidden; }
     #panel label.field b.ovr { color: var(--accent); font-size: 9px; vertical-align: 1px; }
+    #jsonPane { grid-area: json; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border-left: 1px solid var(--border); }
+    #jsonPane[hidden] { display: none; }
+    #jsonResize { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 1; }
+    .json-head { display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); }
+    .json-head h3 { flex: 1; margin: 0; font-size: 13px; }
+    .json-head button { padding: 2px 7px; font-size: 12px; }
+    #jsonScroll { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; font: 12px/18px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #jsonGutter { position: sticky; left: 0; flex: none; min-height: 100%; padding: 6px 0; background: var(--surface); color: var(--muted); border-right: 1px solid var(--border); user-select: none; z-index: 1; }
+    #jsonGutter div { display: flex; justify-content: flex-end; height: 18px; padding: 0 2px 0 8px; }
+    #jsonGutter b { width: 14px; font-weight: normal; text-align: center; color: var(--text); }
+    #jsonGutter b[data-fold] { cursor: pointer; }
+    #jsonGutter .errline { color: var(--err); font-weight: 700; }
+    #jsonCode { flex: 1; min-height: 100%; margin: 0; padding: 6px 10px; font: inherit; white-space: pre; outline: none; tab-size: 2; caret-color: var(--text); }
+    #jsonCode .jk { color: var(--js-key); }
+    #jsonCode .js { color: var(--js-str); }
+    #jsonCode .jn { color: var(--js-num); }
+    #jsonCode .jl { color: var(--js-lit); }
+    #jsonCode .jp { color: var(--muted); }
+    #jsonCode .jx { color: var(--err); text-decoration: underline wavy; }
+    #jsonCode .jf i { display: none; }
+    #jsonCode .jf::before { content: "… " attr(data-n) " …"; margin: 0 2px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--hover); color: var(--muted); font-size: 11px; cursor: pointer; }
+    #jsonMsg { min-height: 25px; padding: 4px 12px; border-top: 1px solid var(--border); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #jsonMsg.err { color: var(--err); }
+    #jsonMsg.ok { color: var(--ok); }
     #calc { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
     #calc[hidden] { display: none; }
     .icon-btn { display: flex; padding: 4px 6px; }
@@ -264,12 +288,26 @@
     <button id="btnZoomIn" title="Zoom in">+</button>
     <button id="btnFit" title="Fit plan to window">Fit</button>
     <button id="btnCalc" class="icon-btn" title="Show or hide the calculator" aria-label="Show or hide the calculator"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M19 19H5V5H19V19M6.2 7.7H11.2V9.2H6.2V7.7M13 15.8H18V17.3H13V15.8M13 13.2H18V14.7H13V13.2M8 18H9.5V16H11.5V14.5H9.5V12.5H8V14.5H6V16H8V18M14.1 10.9L15.5 9.5L16.9 10.9L18 9.9L16.6 8.5L18 7.1L16.9 6L15.5 7.4L14.1 6L13 7.1L14.4 8.5L13 9.9L14.1 10.9Z"/></svg></button>
+    <button id="btnJson" class="icon-btn" title="Show or hide the plan as JSON" aria-label="Show or hide the plan as JSON"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M5,3H7V5H5V10A2,2 0 0,1 3,12A2,2 0 0,1 5,14V19H7V21H5C3.93,20.730 3,20.1 3,19V15A2,2 0 0,0 1,13H0V11H1A2,2 0 0,0 3,9V5A2,2 0 0,1 5,3M19,3A2,2 0 0,1 21,5V9A2,2 0 0,0 23,11H24V13H23A2,2 0 0,0 21,15V19A2,2 0 0,1 19,21H17V19H19V14A2,2 0 0,1 21,12A2,2 0 0,1 19,10V5H17V3H19M12,15A1,1 0 0,1 13,16A1,1 0 0,1 12,17A1,1 0 0,1 11,16A1,1 0 0,1 12,15M8,15A1,1 0 0,1 9,16A1,1 0 0,1 8,17A1,1 0 0,1 7,16A1,1 0 0,1 8,15M16,15A1,1 0 0,1 17,16A1,1 0 0,1 16,17A1,1 0 0,1 15,16A1,1 0 0,1 16,15Z"/></svg></button>
     <button id="btnMode" class="icon-btn" title="Switch between light and dark mode" aria-label="Switch between light and dark mode"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M7.5,2C5.71,3.15 4.5,5.18 4.5,7.5C4.5,9.82 5.71,11.85 7.53,13C4.46,13 2,10.54 2,7.5A5.5,5.5 0 0,1 7.5,2M19.07,3.5L20.5,4.93L4.93,20.5L3.5,19.07L19.07,3.5M12.89,5.93L11.41,5L9.97,6L10.39,4.3L9,3.24L10.75,3.12L11.33,1.47L12,3.1L13.73,3.13L12.38,4.26L12.89,5.93M9.59,9.54L8.43,8.81L7.31,9.59L7.65,8.27L6.56,7.44L7.92,7.35L8.37,6.06L8.88,7.33L10.24,7.36L9.19,8.23L9.59,9.54M19,13.5A5.5,5.5 0 0,1 13.5,19C12.28,19 11.15,18.6 10.24,17.93L17.93,10.24C18.6,11.15 19,12.28 19,13.5M14.6,20.08L17.37,18.93L17.13,22.28L14.6,20.08M18.93,17.38L20.08,14.61L22.28,17.15L18.93,17.38M20.08,12.42L18.94,9.64L22.28,9.88L20.08,12.42M9.63,18.93L12.4,20.08L9.87,22.27L9.63,18.93Z"/></svg></button>
   </header>
 
   <main id="stage">
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
   </main>
+
+  <aside id="jsonPane" hidden>
+    <div id="jsonResize" title="Drag to resize"></div>
+    <div class="json-head">
+      <h3>Plan JSON</h3>
+      <button data-j="fold" title="Fold everything below the top level">Fold all</button>
+      <button data-j="unfold">Unfold all</button>
+      <button data-j="format" title="Show the plan as it is now, neatly laid out">Format</button>
+      <button data-j="close" title="Close" aria-label="Close">×</button>
+    </div>
+    <div id="jsonScroll"><div id="jsonGutter"></div><pre id="jsonCode" contenteditable="plaintext-only" spellcheck="false" aria-label="Plan JSON"></pre></div>
+    <div id="jsonMsg"></div>
+  </aside>
 
   <aside id="side">
     <div id="panel"></div>
