@@ -1011,7 +1011,7 @@
 
   function compassSvg(c, selected) {
     const st = planStyle(), [cx, cy] = S(c.x, c.y), R = c.size * view.scale / 2;
-    const color = selected ? ACCENT : st.dimColor, textColor = selected ? ACCENT : st.dimFontColor;
+    const color = selected ? ACCENT : st.dimColor;
     const w = R * 0.12, sw = selected ? 1.6 : 1.1;
     const tri = (pts, filled) => `<path d="${poly(pts)}" fill="${filled ? color : PAPER}" stroke="${color}" stroke-width="${sw}" stroke-linejoin="round"/>`;
     let g = `<g transform="translate(${f(cx)} ${f(cy)}) rotate(${c.rot})">` +
@@ -1025,7 +1025,11 @@
       const tip = [dx * R * len, dy * R * len], a = [-dy * w + dx * w, dx * w + dy * w], b = [dy * w + dx * w, -dx * w + dy * w];
       g += tri([tip, a, [0, 0]], true) + tri([tip, b, [0, 0]], false);
     }
-    g += `<text x="0" y="${f(-R * 0.91)}" style="font-family:${fontCss(st.dimFont)};font-size:${f(Math.max(R * 0.2, 7))}px;font-weight:700" text-anchor="middle" dominant-baseline="central" fill="${textColor}">N</text></g>`;
+    // The four cardinal letters in the colour of the rose itself, N largest and furthest out to match its longer point.
+    for (const [ch, dx, dy, at, scale] of [['N', 0, -1, 0.91, 0.2], ['E', 1, 0, 0.84, 0.16], ['S', 0, 1, 0.84, 0.16], ['W', -1, 0, 0.84, 0.16]]) {
+      g += `<text x="${f(dx * R * at)}" y="${f(dy * R * at)}" style="font-family:${fontCss(st.dimFont)};font-size:${f(Math.max(R * scale, 7))}px;font-weight:700" text-anchor="middle" dominant-baseline="central" fill="${color}">${ch}</text>`;
+    }
+    g += '</g>';
     if (selected && !specialLayer('dimensions').frozen) {
       const hs = compassHandles(c), rot = hs[hs.length - 1];
       g += `<path d="${poly(hs.slice(0, 4).map(x => x.p))}" fill="none" stroke="${ACCENT}" stroke-width="1" stroke-dasharray="5 3"/>`;
