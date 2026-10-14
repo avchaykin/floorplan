@@ -15,6 +15,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 **Walls**
 - Draw walls as rectangles; rectangles that touch or overlap merge into one wall outline.
 - Walls are axis-aligned (no angled walls).
+- Lines are thin walls with a length only, in any direction, each with one dimension. A line that ends on a wall face splits that wall's dimensions at that point.
 
 **Doors, doorways and windows**
 - Doors have a frame size and a door size, a hinge side and an opening direction.
@@ -59,6 +60,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 | --- | --- |
 | Select / move | `V`, then click or drag |
 | Wall | `W`, drag a rectangle |
+| Line | `L`, drag from one end to the other (`Shift`: horizontal or vertical) |
 | Door / doorway / window | `D` / `O` / `N`, click a wall |
 | Rectangle / round object | `B` / `E`, drag or click |
 | Polygon object | `G`, click each corner; `Enter` or double-click to finish |

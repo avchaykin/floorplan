@@ -387,13 +387,13 @@
 
   // Everything that belongs to one level (floor). The level being edited keeps these at the top of `doc`;
   // the other levels carry theirs in `level.data`.
-  const LEVEL_KEYS = ['walls', 'openings', 'objects', 'marks', 'titles', 'compasses', 'rulers', 'comments', 'hiddenDimensions', 'realDimensions', 'descriptions', 'layers'];
+  const LEVEL_KEYS = ['walls', 'openings', 'lines', 'objects', 'marks', 'titles', 'compasses', 'rulers', 'comments', 'hiddenDimensions', 'realDimensions', 'descriptions', 'layers'];
   const LEVEL_SHOW = ['off', 'on', 'ghost'];   // how a level appears while another one is being edited
   function emptyContent() {
-    return { walls: [], openings: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], comments: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, layers: defaultLayers() };
+    return { walls: [], openings: [], lines: [], objects: [], marks: [], titles: [], compasses: [], rulers: [], comments: [], hiddenDimensions: [], realDimensions: {}, descriptions: {}, layers: defaultLayers() };
   }
   const contentOf = holder => Object.fromEntries(LEVEL_KEYS.map(k => [k, holder[k]]));
-  const hasContent = c => ['walls', 'openings', 'objects', 'marks', 'titles', 'compasses', 'rulers', 'comments'].some(k => c[k].length);
+  const hasContent = c => ['walls', 'openings', 'lines', 'objects', 'marks', 'titles', 'compasses', 'rulers', 'comments'].some(k => c[k].length);
 
   function newDoc() {
     return Object.assign({ format: 'floorplan', version: 1, units: 'mm', nextId: 1, settings: defaultSettings(), level: 'lv1', levels: [{ id: 'lv1', name: 'Level 1', show: 'off', data: null }] }, emptyContent());
@@ -415,6 +415,13 @@
     out.walls = (d.walls || []).filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0);
     out.openings = (d.openings || []).filter(o => OPENING_TOOLS.includes(o.type) && Number.isFinite(o.x) && Number.isFinite(o.y));
     out.hiddenDimensions = (d.hiddenDimensions || []).filter(k => typeof k === 'string');
+    // Lines are thin straight walls of any direction, drawn on the walls layer.
+    out.lines = (d.lines || []).filter(l => [l.x1, l.y1, l.x2, l.y2].every(Number.isFinite) && (l.x1 !== l.x2 || l.y1 !== l.y2)).map(src => {
+      const l = { id: src.id, x1: src.x1, y1: src.y1, x2: src.x2, y2: src.y2 };
+      if (src.hideSize === true) l.hideSize = true;
+      if (typeof src.description === 'string' && src.description) l.description = src.description;
+      return l;
+    });
     // Notes on dimensions and wall lines, which have no record of their own: keyed "dim|<key>" or "edge|<key>".
     for (const [k, v] of Object.entries(d.descriptions || {})) if (typeof v === 'string' && v && /^(dim|edge)\|/.test(k)) out.descriptions[k] = v;
     for (const [k, v] of Object.entries(d.realDimensions || {})) if (Number.isFinite(v) && v > 0) out.realDimensions[k] = v;
@@ -472,7 +479,7 @@
       if (pairSet(toPair(src.color))) c.color = toPair(src.color);
       return c;
     });
-    const ids = out.walls.concat(out.openings, out.objects, out.marks, out.titles, out.compasses, out.rulers, out.comments).map(o => +o.id || 0)
+    const ids = out.walls.concat(out.openings, out.lines, out.objects, out.marks, out.titles, out.compasses, out.rulers, out.comments).map(o => +o.id || 0)
       .concat(objectLayers.map(l => +String(l.id).replace(/^L/, '') || 0));
     delete out.settings;
     return { content: out, top: Math.max(0, ...ids) };
@@ -690,7 +697,7 @@
       doc.titles.map(t => ({ x: t.x - 500, y: t.y - 200, w: 1000, h: 400 })),
       doc.comments.map(c => ({ x: c.x - c.w / 2, y: c.y - c.h / 2, w: c.w, h: c.h })),
       doc.compasses.map(c => ({ x: c.x - c.size / 2, y: c.y - c.size / 2, w: c.size, h: c.size })),
-      doc.rulers.map(r => ({ x: Math.min(r.x1, r.x2), y: Math.min(r.y1, r.y2), w: Math.abs(r.x2 - r.x1) || 1, h: Math.abs(r.y2 - r.y1) || 1 })));
+      doc.rulers.concat(doc.lines).map(r => ({ x: Math.min(r.x1, r.x2), y: Math.min(r.y1, r.y2), w: Math.abs(r.x2 - r.x1) || 1, h: Math.abs(r.y2 - r.y1) || 1 })));
     if (!boxes.length || !r.width) {
       view.scale = 0.08; view.ox = 80; view.oy = 80;
       return;
@@ -1087,6 +1094,11 @@
       const a = Math.max(along - half, lo), b = Math.min(along + half, hi);
       if (b > a) cuts.push(a, b);
     }
+    // A line ending on this wall face splits its dimensions at that point.
+    for (const l of doc.lines) for (const [x, y] of [[l.x1, l.y1], [l.x2, l.y2]]) {
+      const across = horiz ? y : x, along = horiz ? x : y;
+      if (Math.abs(across - face) < 0.5 && along > lo + 0.5 && along < hi - 0.5) cuts.push(along);
+    }
     const base = { nx: seg.nx, ny: seg.ny, comp: seg.comp, segKey: seg.key };
     const overall = Object.assign({
       key: seg.key, x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2, len: seg.len,
@@ -1379,6 +1391,35 @@
     return null;
   }
 
+  // ---------- Lines ----------
+  // A thin straight wall in any direction. It has a length only, shown by one dimension beside it.
+
+  function lineSvg(l, selected) {
+    const a = S(l.x1, l.y1), b = S(l.x2, l.y2);
+    let g = line(a, b, `stroke="${selected ? ACCENT : planStyle().wallColor}" stroke-width="2.5" stroke-linecap="round"`);
+    if (selected && !specialLayer('walls').frozen) {
+      for (const p of [a, b]) g += `<rect x="${f(p[0] - 4)}" y="${f(p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
+    }
+    return g;
+  }
+
+  function lineDimSvg(l, selected) {
+    const len = rulerLength(l);
+    if (!len || l.hideSize) return '';
+    // Like a free dimension, on the upper side of the line (the left side for a vertical one), set off from it.
+    let n = [(l.y2 - l.y1) / len, -(l.x2 - l.x1) / len];
+    if (n[1] > 0 || (n[1] === 0 && n[0] > 0)) n = [-n[0], -n[1]];
+    return freeDimSvg([l.x1, l.y1], [l.x2, l.y2], n, dimOffset(), fmt(len), selected);
+  }
+
+  function hitLine(p) {
+    for (let i = doc.lines.length - 1; i >= 0; i--) {
+      const l = doc.lines[i];
+      if (distToSegment(p, S(l.x1, l.y1), S(l.x2, l.y2)) <= 5) return l;
+    }
+    return null;
+  }
+
   function objectMeasuresSvg(o) {
     const m = o.measure;
     if (!m || o.shape) return '';   // side dimensions make sense for rectangles only
@@ -1411,9 +1452,11 @@
           const d = walls.loops.map(l => poly(l.points.map(p => S(p[0], p[1])))).join('');
           h.push(`<path d="${d}" fill="${planStyle().wallColor}" fill-rule="evenodd"/>`);
         }
+        for (const l of doc.lines) h.push(lineSvg(l, !!sel && sel.kind === 'line' && sel.id === l.id));
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
+        if (specialLayer('walls').visible) for (const l of doc.lines) h.push(lineDimSvg(l, !!sel && sel.kind === 'line' && sel.id === l.id));
         for (const o of doc.objects) if (o.measure && objLayer(o).visible) h.push(objectMeasuresSvg(o));
         for (const r of doc.rulers) h.push(rulerSvg(r, !!sel && sel.kind === 'ruler' && sel.id === r.id));
         for (const c of doc.compasses) h.push(compassSvg(c, !!sel && sel.kind === 'compass' && sel.id === c.id));
@@ -1449,6 +1492,10 @@
     if (drag && drag.kind === 'newcomment') {
       const r = dragRect(drag);
       if (r.w > 0 && r.h > 0) h.push(commentSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, text: '' }, false, true));
+    }
+    if (drag && drag.kind === 'newline' && (drag.a.x !== drag.b.x || drag.a.y !== drag.b.y)) {
+      const l = { x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y };
+      h.push(lineSvg(l, true), lineDimSvg(l, true));
     }
     if (drag && drag.kind === 'newruler') h.push(rulerSvg({ x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y, round: 0 }, false, true));
     if (drag && drag.kind === 'newobject') {
@@ -1497,6 +1544,7 @@
     if (sel.kind === 'comment') return doc.comments.find(c => c.id === sel.id) || null;
     if (sel.kind === 'compass') return doc.compasses.find(c => c.id === sel.id) || null;
     if (sel.kind === 'ruler') return doc.rulers.find(r => r.id === sel.id) || null;
+    if (sel.kind === 'line') return doc.lines.find(l => l.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
     return walls.segments.find(s => s.key === sel.key) || null;
   }
@@ -1742,6 +1790,9 @@
       h = '<h3>New compass rose</h3><p>Click on the plan to place it. It belongs to the Dimensions layer; turn it so that N points to north.</p>';
     } else if (tool === 'ruler') {
       h = '<h3>New free dimension</h3><p>Drag from the start point to the end point. It can go anywhere and snaps to the grid and to wall edges; hold Alt to place it freely.</p>';
+    } else if (tool === 'line') {
+      h = '<h3>Line</h3><p>Drag from one end to the other. Lines belong to the Walls layer and can go in any direction; hold Shift to keep one horizontal or vertical, Alt to place it without snapping.</p>' +
+        '<p>An end placed on a wall face splits the dimensions of that wall at that point.</p>';
     } else if (tool === 'mark') {
       h = '<h3>New ceiling height mark</h3>' + field('Ceiling height', 'height', defaults.mark.height) +
         '<p>Click on the plan to place the mark. It belongs to the Dimensions layer and uses the dimension font and colours.</p>';
@@ -1782,6 +1833,13 @@
         '<p>A real size is shown instead of the measured one, marked with *. Leave it empty to show the measured length.</p>' +
         field('Start X', 'x1', obj.x1) + field('Start Y', 'y1', obj.y1) + field('End X', 'x2', obj.x2) + field('End Y', 'y2', obj.y2) +
         '<p>Drag an end square to move that end, or the line to move it all.</p>' +
+        descriptionField() +
+        '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
+    } else if (sel && sel.kind === 'line') {
+      h = '<h3>Line</h3>' + field('Length', 'llen', rulerLength(obj)) +
+        field('Start X', 'x1', obj.x1) + field('Start Y', 'y1', obj.y1) + field('End X', 'x2', obj.x2) + field('End Y', 'y2', obj.y2) +
+        `<label class="check"><input type="checkbox" data-lhide${obj.hideSize ? ' checked' : ''}> Hide dimension on plan</label>` +
+        '<p>Changing the length moves the end point. Drag an end square to move that end, or the line to move it all. An end on a wall face splits that wall\'s dimensions.</p>' +
         descriptionField() +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'compass') {
@@ -1954,6 +2012,14 @@
       if ('clayer' in ds) { comment.layer = el.value; return 'doc'; }
       if (ds.ccol) { comment.color = withSide(comment.color, el); return 'doc'; }
     }
+    const lineSel = sel && sel.kind === 'line' ? selectedObject() : null;
+    if (lineSel && 'lhide' in ds) { if (el.checked) lineSel.hideSize = true; else delete lineSel.hideSize; return 'doc'; }
+    if (lineSel && ds.k === 'llen') {
+      const len = Math.max(Math.round((Number(el.value) || 0) * UNITS[doc.units].factor), 1), cur = rulerLength(lineSel);
+      lineSel.x2 = Math.round(lineSel.x1 + (lineSel.x2 - lineSel.x1) / cur * len);
+      lineSel.y2 = Math.round(lineSel.y1 + (lineSel.y2 - lineSel.y1) / cur * len);
+      return 'doc';
+    }
     const ruler = sel && sel.kind === 'ruler' ? selectedObject() : null;
     if (ruler && 'rround' in ds) { ruler.round = Number(el.value) || 0; return 'doc'; }
     if (ruler && 'rreal' in ds) {
@@ -2102,6 +2168,7 @@
     else if (sel.kind === 'comment') doc.comments = doc.comments.filter(c => c.id !== sel.id);
     else if (sel.kind === 'compass') doc.compasses = doc.compasses.filter(c => c.id !== sel.id);
     else if (sel.kind === 'ruler') doc.rulers = doc.rulers.filter(r => r.id !== sel.id);
+    else if (sel.kind === 'line') doc.lines = doc.lines.filter(l => l.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
     else if (sel.kind === 'dim') {
       const dim = selectedObject();
@@ -2126,6 +2193,7 @@
     title: 'Click to place a title on the highlighted layer · Esc to cancel',
     comment: 'Drag to draw a comment note, or click to drop one · Esc to cancel',
     compass: 'Click to place a compass rose · Esc to cancel',
+    line: 'Drag from one end to the other to add a line (Shift: horizontal or vertical) · Alt disables snapping · Esc to cancel',
     ruler: 'Drag from start to end to add a free dimension · Alt disables snapping · Esc to cancel',
     door: 'Click a wall to place a door · Esc to finish',
     doorway: 'Click a wall to place a doorway · Esc to finish',
@@ -2172,7 +2240,7 @@
       rebuild();
       remapHidden(dx, dy);
       commit();
-    } else if (sel.kind === 'ruler') {
+    } else if (sel.kind === 'ruler' || sel.kind === 'line') {
       obj.x1 += dx; obj.x2 += dx; obj.y1 += dy; obj.y2 += dy;
       commit();
     } else if (['object', 'mark', 'title', 'compass', 'comment'].includes(sel.kind)) {
@@ -2255,9 +2323,9 @@
       drag = { kind: 'newcomment', a, b: a };
       return;
     }
-    if (tool === 'ruler') {
+    if (tool === 'ruler' || tool === 'line') {
       const a = snapPoint(w, e);
-      drag = { kind: 'newruler', a, b: a };
+      drag = { kind: tool === 'line' ? 'newline' : 'newruler', a, b: a };
       return;
     }
     if (tool === 'title' || tool === 'compass') {
@@ -2303,7 +2371,7 @@
         return;
       }
     }
-    if (sel && sel.kind === 'ruler' && !selLocked()) {
+    if (sel && (sel.kind === 'ruler' || sel.kind === 'line') && !selLocked()) {
       const r = selectedObject();
       const end = r && [1, 2].find(i => { const q = S(r['x' + i], r['y' + i]); return Math.abs(q[0] - p.x) <= 7 && Math.abs(q[1] - p.y) <= 7; });
       if (end) { drag = { kind: 'rulerend', o: r, end }; return; }
@@ -2392,6 +2460,12 @@
           if (free) drag = { kind: 'moveopening', o };
           return renderAll();
         }
+        const ln = hitLine(p);
+        if (ln) {
+          sel = { kind: 'line', id: ln.id };
+          if (free) drag = { kind: 'moveruler', o: ln, w0: w, orig: Object.assign({}, ln) };
+          return renderAll();
+        }
         const edge = hitEdge(p);
         if (edge) {
           sel = { kind: 'edge', key: edge.key };
@@ -2443,7 +2517,7 @@
       drag.o.rot = normAngle(Math.round(ang / step) * step);
     } else if (drag.kind === 'newcomment') {
       drag.b = { x: snapv(w.x, e), y: snapv(w.y, e) };
-    } else if (drag.kind === 'newruler') {
+    } else if (drag.kind === 'newruler' || drag.kind === 'newline') {
       // Shift keeps the dimension horizontal or vertical.
       const q = snapPoint(w, e), [dx, dy] = axisLock(q.x - drag.a.x, q.y - drag.a.y, e);
       drag.b = { x: drag.a.x + dx, y: drag.a.y + dy };
@@ -2541,6 +2615,14 @@
       panelFocus = '[data-ctext]';
       return commit();
     }
+    if (d.kind === 'newline') {
+      if (d.a.x === d.b.x && d.a.y === d.b.y) return render();
+      const l = { id: doc.nextId++, x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y };
+      doc.lines.push(l);
+      setTool('select');
+      sel = { kind: 'line', id: l.id };
+      return commit();
+    }
     if (d.kind === 'newruler') {
       if (d.a.x === d.b.x && d.a.y === d.b.y) return render();   // a click without a drag adds nothing
       const r = { id: doc.nextId++, x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y, round: 0 };
@@ -2610,11 +2692,11 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && ['wall', 'opening', 'object', 'mark', 'title', 'compass', 'ruler', 'comment'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && ['wall', 'opening', 'line', 'object', 'mark', 'title', 'compass', 'ruler', 'comment'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
-    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', m: 'ruler', t: 'title', p: 'comment', c: 'compass' }[e.key.toLowerCase()];
+    const t = { v: 'select', w: 'wall', d: 'door', o: 'doorway', n: 'window', b: 'object', e: 'ellipse', g: 'polygon', h: 'mark', l: 'line', m: 'ruler', t: 'title', p: 'comment', c: 'compass' }[e.key.toLowerCase()];
     if (t) setTool(t);
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
