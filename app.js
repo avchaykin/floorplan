@@ -1591,10 +1591,9 @@
       const level = doc.levels.find(l => l.id === row.dataset.level);
       level.show = LEVEL_SHOW[(LEVEL_SHOW.indexOf(level.show) + 1) % LEVEL_SHOW.length];
     } else if (btn && btn.dataset.vact === 'add') {
-      // The new level starts with the same layers (empty), and the one below is left visible as a ghost to trace over.
+      // The new level starts empty with its own default layers, and the one below is left visible as a ghost to trace over.
       const below = doc.levels[i], id = 'lv' + doc.nextId++;
-      const layers = JSON.parse(JSON.stringify(doc.layers));
-      doc.levels.splice(i + 1, 0, { id, name: 'Level ' + (doc.levels.length + 1), show: 'off', data: Object.assign(emptyContent(), { layers }) });
+      doc.levels.splice(i + 1, 0, { id, name: 'Level ' + (doc.levels.length + 1), show: 'off', data: emptyContent() });
       below.show = 'ghost';
       switchLevel(id);
     } else if (btn && (btn.dataset.vact === 'up' || btn.dataset.vact === 'down')) {
