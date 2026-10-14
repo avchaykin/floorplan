@@ -31,6 +31,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 
 **Objects, titles, notes**
 - Objects are free shapes (furniture and the like): rectangles, round shapes, or polygons edited corner by corner. They can be moved, resized and rotated. They have a name, an optional description, a fill style (solid, diagonal, cross-hatch) and colour.
+- Lines can also be drawn on an object layer (Objects tool group); they take that layer's border colour, have one dimension and leave wall dimensions alone.
 - Each rectangular object can show, per side: its side length, the gap to the nearest other object, and the gap to the nearest wall.
 - Titles are free text that can sit on any layer.
 - Comment notes are sticky-note shapes with wrapped text and a colour.
@@ -64,6 +65,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 | Select / move | `V`, then click or drag |
 | Wall | `W`, drag a rectangle |
 | Line | `L`, drag from one end to the other (`Shift`: horizontal or vertical) |
+| Line on an object layer | Line button in the Objects group, then drag |
 | Door / doorway / window | `D` / `O` / `N`, click a wall |
 | Rectangle / round object | `B` / `E`, drag or click |
 | Polygon object | `G`, click each corner; `Enter` or double-click to finish |

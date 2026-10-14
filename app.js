@@ -419,6 +419,7 @@
     // Lines are thin straight walls of any direction, drawn on the walls layer.
     out.lines = (d.lines || []).filter(l => [l.x1, l.y1, l.x2, l.y2].every(Number.isFinite) && (l.x1 !== l.x2 || l.y1 !== l.y2)).map(src => {
       const l = { id: src.id, x1: src.x1, y1: src.y1, x2: src.x2, y2: src.y2 };
+      if (typeof src.layer === 'string' && src.layer) l.layer = src.layer;   // on an object layer; without one it is part of the walls
       if (src.hideSize === true) l.hideSize = true;
       if (Number.isFinite(src.real) && src.real > 0) l.real = src.real;
       if (typeof src.description === 'string' && src.description) l.description = src.description;
@@ -458,6 +459,7 @@
     out.layers = cleanLayers(d.layers, out.settings);
     const objectLayers = out.layers.filter(l => l.kind === 'objects');
     for (const o of out.objects) if (!objectLayers.some(l => l.id === o.layer)) o.layer = objectLayers[0].id;
+    for (const l of out.lines) if (l.layer && !objectLayers.some(x => x.id === l.layer)) l.layer = objectLayers[0].id;
     out.marks = (d.marks || []).filter(m => [m.x, m.y, m.height].every(Number.isFinite) && m.height > 0)
       .map(m => Object.assign({ id: m.id, x: m.x, y: m.y, height: m.height }, typeof m.description === 'string' && m.description ? { description: m.description } : {}));
     const note = src => typeof src.description === 'string' && src.description ? { description: src.description } : {};
@@ -556,6 +558,10 @@
     if (sel.kind === 'object') { const o = doc.objects.find(x => x.id === sel.id); return o ? objLayer(o) : null; }
     if (sel.kind === 'title') { const t = doc.titles.find(x => x.id === sel.id); return t ? layerById(t.layer) : null; }
     if (sel.kind === 'comment') { const c = doc.comments.find(x => x.id === sel.id); return c ? layerById(c.layer) : null; }
+    if (sel.kind === 'line' || sel.kind === 'linedim') {
+      const l = doc.lines.find(x => x.id === sel.id);
+      return !l ? null : l.layer ? lineLayer(l) : specialLayer(sel.kind === 'line' ? 'walls' : 'dimensions');
+    }
     return specialLayer(['dim', 'linedim', 'mark', 'compass', 'ruler'].includes(sel.kind) ? 'dimensions' : 'walls');
   }
   const selLocked = () => { const layer = selLayer(); return !!layer && layer.frozen; };
@@ -1110,7 +1116,7 @@
       if (b > a) cuts.push(a, b);
     }
     // A line ending on this wall face splits its dimensions at that point.
-    for (const l of doc.lines) for (const [x, y] of [[l.x1, l.y1], [l.x2, l.y2]]) {
+    for (const l of doc.lines) if (!l.layer) for (const [x, y] of [[l.x1, l.y1], [l.x2, l.y2]]) {
       const across = horiz ? y : x, along = horiz ? x : y;
       if (Math.abs(across - face) < 0.5 && along > lo + 0.5 && along < hi - 0.5) cuts.push(along);
     }
@@ -1409,10 +1415,13 @@
   // ---------- Lines ----------
   // A thin straight wall in any direction. It has a length only, shown by one dimension beside it.
 
+  // Wall lines are in the wall colour; lines on an object layer take the object border colour and size of that layer.
+  const lineLayer = l => l.layer ? layerById(l.layer) || specialLayer('objects') : specialLayer('walls');
   function lineSvg(l, selected) {
-    const a = S(l.x1, l.y1), b = S(l.x2, l.y2);
-    let g = line(a, b, `stroke="${selected ? ACCENT : planStyle().wallColor}" stroke-width="2.5" stroke-linecap="round"`);
-    if (selected && !specialLayer('walls').frozen) {
+    const a = S(l.x1, l.y1), b = S(l.x2, l.y2), st = l.layer ? objSettings(l) : null;
+    const width = st ? Math.max(st.objBorderSize, 1) : 2.5;
+    let g = line(a, b, `stroke="${selected ? ACCENT : st ? st.objBorderColor : planStyle().wallColor}" stroke-width="${selected ? Math.max(width, 2) : width}" stroke-linecap="round"`);
+    if (selected && !lineLayer(l).frozen) {
       for (const p of [a, b]) g += `<rect x="${f(p[0] - 4)}" y="${f(p[1] - 4)}" width="8" height="8" fill="${PAPER}" stroke="${ACCENT}" stroke-width="1.5"/>`;
     }
     return g;
@@ -1434,10 +1443,9 @@
 
   // The dimension of a line under the pointer: its dimension line or its label.
   function hitLineDim(p) {
-    if (!specialLayer('walls').visible) return null;
     for (let i = doc.lines.length - 1; i >= 0; i--) {
       const l = doc.lines[i];
-      if (!rulerLength(l) || l.hideSize) continue;
+      if (!rulerLength(l) || l.hideSize || !lineLayer(l).visible) continue;
       const n = lineDimSide(l), off = dimOffset(), size = doc.settings.dimFontSize;
       const a = S(l.x1, l.y1), b = S(l.x2, l.y2), len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (len < 10) continue;
@@ -1450,10 +1458,10 @@
     return null;
   }
 
-  function hitLine(p) {
+  function hitLine(p, layerId) {
     for (let i = doc.lines.length - 1; i >= 0; i--) {
       const l = doc.lines[i];
-      if (distToSegment(p, S(l.x1, l.y1), S(l.x2, l.y2)) <= 5) return l;
+      if ((l.layer || null) === layerId && distToSegment(p, S(l.x1, l.y1), S(l.x2, l.y2)) <= 5) return l;
     }
     return null;
   }
@@ -1490,17 +1498,18 @@
           const d = walls.loops.map(l => poly(l.points.map(p => S(p[0], p[1])))).join('');
           h.push(`<path d="${d}" fill="${planStyle().wallColor}" fill-rule="evenodd"/>`);
         }
-        for (const l of doc.lines) h.push(lineSvg(l, !!sel && sel.kind === 'line' && sel.id === l.id));
+        for (const l of doc.lines) if (!l.layer) h.push(lineSvg(l, !!sel && sel.kind === 'line' && sel.id === l.id));
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
-        if (specialLayer('walls').visible) for (const l of doc.lines) h.push(lineDimSvg(l, !!sel && (sel.kind === 'line' || sel.kind === 'linedim') && sel.id === l.id));
+        for (const l of doc.lines) if (lineLayer(l).visible) h.push(lineDimSvg(l, !!sel && (sel.kind === 'line' || sel.kind === 'linedim') && sel.id === l.id));
         for (const o of doc.objects) if (o.measure && objLayer(o).visible) h.push(objectMeasuresSvg(o));
         for (const r of doc.rulers) h.push(rulerSvg(r, !!sel && sel.kind === 'ruler' && sel.id === r.id));
         for (const c of doc.compasses) h.push(compassSvg(c, !!sel && sel.kind === 'compass' && sel.id === c.id));
         for (const m of doc.marks) h.push(markSvg(m, !!sel && sel.kind === 'mark' && sel.id === m.id));
       } else {
         for (const o of doc.objects) if (o.layer === layer.id) h.push(objectSvg(o, !!sel && sel.kind === 'object' && sel.id === o.id));
+        for (const l of doc.lines) if (l.layer === layer.id) h.push(lineSvg(l, !!sel && sel.kind === 'line' && sel.id === l.id));
       }
       for (const c of doc.comments) if (c.layer === layer.id) h.push(commentSvg(c, !!sel && sel.kind === 'comment' && sel.id === c.id));
       for (const t of doc.titles) if (t.layer === layer.id) h.push(titleSvg(t, !!sel && sel.kind === 'title' && sel.id === t.id));
@@ -1532,7 +1541,7 @@
       if (r.w > 0 && r.h > 0) h.push(commentSvg({ x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, rot: 0, text: '' }, false, true));
     }
     if (drag && drag.kind === 'newline' && (drag.a.x !== drag.b.x || drag.a.y !== drag.b.y)) {
-      const l = { x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y };
+      const l = Object.assign({ x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y }, drag.layer ? { layer: drag.layer } : {});
       h.push(lineSvg(l, true), lineDimSvg(l, true));
     }
     if (drag && drag.kind === 'newruler') h.push(rulerSvg({ x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y, round: 0 }, false, true));
@@ -1776,7 +1785,7 @@
     const side = el.dataset.side ? `[data-side="${el.dataset.side}"]` : '';
     if (el.dataset.measure) return `[data-measure="${el.dataset.measure}"][data-mside="${el.dataset.mside}"]`;
     for (const k of ['k', 'set', 'lset', 'ofill', 'oflag', 'tcol', 'ccol']) if (el.dataset[k]) return `[data-${k}="${el.dataset[k]}"]${side}`;
-    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer', 'rround', 'rreal', 'ctext', 'clayer']) if (k in el.dataset) return `[data-${k}]`;
+    for (const k of ['name', 'rot', 'desc', 'real', 'lname', 'olayer', 'gfont', 'ttext', 'tfont', 'tsize', 'tlayer', 'rround', 'rreal', 'ctext', 'clayer', 'llayer']) if (k in el.dataset) return `[data-${k}]`;
     return null;
   }
 
@@ -1814,6 +1823,9 @@
       h = '<h3>New compass rose</h3><p>Click on the plan to place it. It belongs to the Dimensions layer; turn it so that N points to north.</p>';
     } else if (tool === 'ruler') {
       h = '<h3>New free dimension</h3><p>Drag from the start point to the end point. It can go anywhere and snaps to the grid and to wall edges; hold Alt to place it freely.</p>';
+    } else if (tool === 'objline') {
+      h = `<h3>Line</h3><p>Drag from one end to the other. The line goes on the highlighted object layer, “${esc(targetLayer().name)}”, in that layer's border colour. Hold Shift to keep it horizontal or vertical, Alt to place it without snapping.</p>` +
+        '<p>Unlike a wall line it does not split wall dimensions.</p>';
     } else if (tool === 'line') {
       h = '<h3>Line</h3><p>Drag from one end to the other. Lines belong to the Walls layer and can go in any direction; hold Shift to keep one horizontal or vertical, Alt to place it without snapping.</p>' +
         '<p>An end placed on a wall face splits the dimensions of that wall at that point.</p>';
@@ -1864,7 +1876,8 @@
         field('Start X', 'x1', obj.x1) + field('Start Y', 'y1', obj.y1) + field('End X', 'x2', obj.x2) + field('End Y', 'y2', obj.y2) +
         `<label class="check"><input type="checkbox" data-lhide${obj.hideSize ? ' checked' : ''}> Hide dimension on plan</label>` +
         `<label class="field">Real size<input type="number" min="0" step="${UNITS[doc.units].step}" data-real placeholder="—" value="${obj.real ? fmt(obj.real) : ''}"><span>${doc.units}</span></label>` +
-        '<p>Changing the length moves the end point. Drag an end square to move that end, or the line to move it all. An end on a wall face splits that wall\'s dimensions.</p>' +
+        (obj.layer ? `<label class="field">Layer<select data-llayer>${doc.layers.filter(l => l.kind === 'objects').reverse().map(l => `<option value="${esc(l.id)}"${l.id === obj.layer ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` : '') +
+        '<p>Changing the length moves the end point. Drag an end square to move that end, or the line to move it all.' + (obj.layer ? '' : ' An end on a wall face splits that wall\'s dimensions.') + '</p>' +
         descriptionField() +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
     } else if (sel && sel.kind === 'compass') {
@@ -2090,6 +2103,7 @@
       if (ds.ccol) { comment.color = withSide(comment.color, el); return 'doc'; }
     }
     const lineSel = sel && sel.kind === 'line' ? selectedObject() : null;
+    if (lineSel && 'llayer' in ds) { lineSel.layer = el.value; return 'doc'; }
     if (lineSel && 'lhide' in ds) { if (el.checked) lineSel.hideSize = true; else delete lineSel.hideSize; return 'doc'; }
     if (lineSel && ds.k === 'llen') {
       const len = Math.max(Math.round((Number(el.value) || 0) * UNITS[doc.units].factor), 1), cur = rulerLength(lineSel);
@@ -2282,6 +2296,7 @@
     title: 'Click to place a title on the highlighted layer · Esc to cancel',
     comment: 'Drag to draw a comment note, or click to drop one · Esc to cancel',
     compass: 'Click to place a compass rose · Esc to cancel',
+    objline: 'Drag from one end to the other to add a line on the highlighted object layer (Shift: horizontal or vertical) · Alt disables snapping · Esc to cancel',
     line: 'Drag from one end to the other to add a line (Shift: horizontal or vertical) · Alt disables snapping · Esc to cancel',
     ruler: 'Drag from start to end to add a free dimension · Alt disables snapping · Esc to cancel',
     door: 'Click a wall to place a door · Esc to finish',
@@ -2435,7 +2450,7 @@
       svg.classList.add('panning');
       return;
     }
-    const toolLayer = tool in OBJECT_TOOLS ? targetLayer() : tool === 'title' || tool === 'comment' ? titleTargetLayer()
+    const toolLayer = tool in OBJECT_TOOLS || tool === 'objline' ? targetLayer() : tool === 'title' || tool === 'comment' ? titleTargetLayer()
       : ['mark', 'compass', 'ruler'].includes(tool) ? specialLayer('dimensions') : tool !== 'select' ? specialLayer('walls') : null;
     if (toolLayer && whyBlocked(toolLayer)) return toast(whyBlocked(toolLayer));
     if (tool === 'wall') {
@@ -2448,9 +2463,9 @@
       drag = { kind: 'newcomment', a, b: a };
       return;
     }
-    if (tool === 'ruler' || tool === 'line') {
+    if (tool === 'ruler' || tool === 'line' || tool === 'objline') {
       const a = snapPoint(w, e);
-      drag = { kind: tool === 'line' ? 'newline' : 'newruler', a, b: a };
+      drag = { kind: tool === 'ruler' ? 'newruler' : 'newline', a, b: a, layer: tool === 'objline' ? toolLayer.id : null };
       return;
     }
     if (tool === 'title' || tool === 'compass') {
@@ -2548,6 +2563,12 @@
         return renderAll();
       }
       if (layer.kind === 'objects') {
+        const ln = hitLine(p, layer.id);
+        if (ln) {
+          sel = { kind: 'line', id: ln.id };
+          if (free) drag = { kind: 'moveruler', o: ln, w0: w, orig: Object.assign({}, ln) };
+          return renderAll();
+        }
         const thing = hitObject(w, layer.id);
         if (thing) {
           sel = { kind: 'object', id: thing.id };
@@ -2590,7 +2611,7 @@
           if (free) drag = { kind: 'moveopening', o };
           return renderAll();
         }
-        const ln = hitLine(p);
+        const ln = hitLine(p, null);
         if (ln) {
           sel = { kind: 'line', id: ln.id };
           if (free) drag = { kind: 'moveruler', o: ln, w0: w, orig: Object.assign({}, ln) };
@@ -2749,6 +2770,7 @@
     if (d.kind === 'newline') {
       if (d.a.x === d.b.x && d.a.y === d.b.y) return render();
       const l = { id: doc.nextId++, x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y };
+      if (d.layer) l.layer = d.layer;
       doc.lines.push(l);
       setTool('select');
       sel = { kind: 'line', id: l.id };
