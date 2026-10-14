@@ -538,6 +538,7 @@
   let previewDim = null;   // key of a hidden dimension highlighted from the side panel
   let ghost = null;     // opening preview while a door/window tool is active
   let jsonEd = null;    // the JSON editor, once it has been set up
+  let lastWorld = null; // pointer position on the plan (world mm), for Shift+arrow resizing
   let snap = 10;
   let spaceDown = false;
   const view = { scale: 0.08, ox: 80, oy: 80 };   // screen px = mm * scale + offset
@@ -2185,7 +2186,7 @@
   // ---------- Tools and pointer input ----------
 
   const HINTS = {
-    select: 'Click to select · drag or arrow keys to move (Shift: one axis) · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
+    select: 'Click to select · drag or arrow keys to move (Shift: one axis) · Shift+arrows resize from the side nearest the pointer · scroll to zoom · drag empty space or Shift-scroll to pan · Delete removes',
     wall: 'Drag to draw a wall rectangle · Alt disables snapping · Esc to cancel',
     object: 'Drag to draw an object, or click to drop one · Esc to cancel',
     ellipse: 'Drag to draw a round object, or click to drop one · Esc to cancel',
@@ -2254,6 +2255,41 @@
       obj.x = x; obj.y = y;
       commit();
     }
+  }
+
+  // Shift+arrow: the side nearer the pointer moves one step that way — left or right side for ←/→, top or bottom for ↑/↓.
+  function resizeSelection(dx, dy) {
+    const obj = selectedObject();
+    if (!obj || !['wall', 'object', 'comment'].includes(sel.kind)) return;
+    if (selLocked()) return toast(lockedNote());
+    const cur = lastWorld || { x: obj.x, y: obj.y };
+    if (sel.kind === 'wall') {
+      for (const [d, pos, size] of [[dx, 'x', 'w'], [dy, 'y', 'h']]) {
+        if (!d) continue;
+        const nearStart = cur[pos] < obj[pos] + obj[size] / 2, next = obj[size] + (nearStart ? -d : d);
+        if (next <= 0) return;
+        if (nearStart) obj[pos] += d;
+        obj[size] = next;
+      }
+      return commit();
+    }
+    // Objects and notes work in their own rotated frame; the key acts along whichever of their sides runs closest to its direction.
+    const ld = objToLocal({ x: 0, y: 0, rot: obj.rot }, { x: dx, y: dy }), l = objToLocal(obj, cur);
+    const horiz = Math.abs(ld.x) >= Math.abs(ld.y), step = Math.round(horiz ? ld.x : ld.y);
+    const key = horiz ? 'w' : 'h', axis = horiz ? 0 : 1, size = obj[key];
+    const side = (horiz ? l.x : l.y) < 0 ? -1 : 1, next = size + side * step;
+    if (!step || next < 10) return;
+    if (obj.shape === 'polygon') {
+      // Corners are spread out from the side that stays put.
+      const anchor = -side * size / 2;
+      obj.points = obj.points.map(p => { const q = p.slice(); q[axis] = anchor + (p[axis] - anchor) * next / size; return q; });
+      normalisePolygon(obj);
+    } else {
+      const c = objToWorld(obj, horiz ? step / 2 : 0, horiz ? 0 : step / 2);
+      obj.x = Math.round(c[0]); obj.y = Math.round(c[1]);
+      obj[key] = next;
+    }
+    commit();
   }
 
   // Next corner while drawing a polygon. With Shift it lines up with the previous corner, horizontally or vertically.
@@ -2488,6 +2524,7 @@
 
   svg.addEventListener('pointermove', e => {
     const p = pointer(e), w = toWorld(p);
+    lastWorld = w;
     $('#coords').textContent = `x ${fmt(w.x)}  y ${fmt(w.y)} ${doc.units}`;
 
     if (!drag) {
@@ -2698,7 +2735,8 @@
     }
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (arrow) {
-      if (sel && ['wall', 'opening', 'line', 'object', 'mark', 'title', 'compass', 'ruler', 'comment'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
+      if (sel && e.shiftKey && ['wall', 'object', 'comment'].includes(sel.kind)) { e.preventDefault(); resizeSelection(arrow[0] * snap, arrow[1] * snap); }
+      else if (sel && ['wall', 'opening', 'line', 'object', 'mark', 'title', 'compass', 'ruler', 'comment'].includes(sel.kind)) { e.preventDefault(); nudgeSelection(arrow[0] * snap, arrow[1] * snap); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }

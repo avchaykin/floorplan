@@ -71,6 +71,7 @@ An internet connection is needed only for Google Fonts, if you add any.
 | Comment note | `P`, drag or click |
 | Compass rose | `C`, click |
 | Nudge the selection | Arrow keys (one snap step) |
+| Resize a wall, object or note | `Shift` + arrow keys: the side nearest the pointer moves one snap step (left/right side for ←/→, top/bottom for ↑/↓) |
 | Delete, or hide a dimension | `Delete` |
 | Undo / redo | `⌘Z` / `⇧⌘Z` |
 | Zoom | Scroll, or pinch |
