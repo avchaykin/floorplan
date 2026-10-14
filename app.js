@@ -420,7 +420,9 @@
     out.lines = (d.lines || []).filter(l => [l.x1, l.y1, l.x2, l.y2].every(Number.isFinite) && (l.x1 !== l.x2 || l.y1 !== l.y2)).map(src => {
       const l = { id: src.id, x1: src.x1, y1: src.y1, x2: src.x2, y2: src.y2 };
       if (src.hideSize === true) l.hideSize = true;
+      if (Number.isFinite(src.real) && src.real > 0) l.real = src.real;
       if (typeof src.description === 'string' && src.description) l.description = src.description;
+      if (typeof src.dimDescription === 'string' && src.dimDescription) l.dimDescription = src.dimDescription;
       return l;
     });
     // Notes on dimensions and wall lines, which have no record of their own: keyed "dim|<key>" or "edge|<key>".
@@ -554,7 +556,7 @@
     if (sel.kind === 'object') { const o = doc.objects.find(x => x.id === sel.id); return o ? objLayer(o) : null; }
     if (sel.kind === 'title') { const t = doc.titles.find(x => x.id === sel.id); return t ? layerById(t.layer) : null; }
     if (sel.kind === 'comment') { const c = doc.comments.find(x => x.id === sel.id); return c ? layerById(c.layer) : null; }
-    return specialLayer(['dim', 'mark', 'compass', 'ruler'].includes(sel.kind) ? 'dimensions' : 'walls');
+    return specialLayer(['dim', 'linedim', 'mark', 'compass', 'ruler'].includes(sel.kind) ? 'dimensions' : 'walls');
   }
   const selLocked = () => { const layer = selLayer(); return !!layer && layer.frozen; };
   const lockedNote = () => `The “${selLayer().name}” layer is frozen — unfreeze it in Layers to make changes.`;
@@ -1412,13 +1414,36 @@
     return g;
   }
 
-  function lineDimSvg(l, selected) {
+  // Like a free dimension, on the upper side of the line (the left side for a vertical one), set off from it.
+  function lineDimSide(l) {
     const len = rulerLength(l);
-    if (!len || l.hideSize) return '';
-    // Like a free dimension, on the upper side of the line (the left side for a vertical one), set off from it.
-    let n = [(l.y2 - l.y1) / len, -(l.x2 - l.x1) / len];
-    if (n[1] > 0 || (n[1] === 0 && n[0] > 0)) n = [-n[0], -n[1]];
-    return freeDimSvg([l.x1, l.y1], [l.x2, l.y2], n, dimOffset(), fmt(len), selected);
+    const n = [(l.y2 - l.y1) / len, -(l.x2 - l.x1) / len];
+    return n[1] > 0 || (n[1] === 0 && n[0] > 0) ? [-n[0], -n[1]] : n;
+  }
+  // A real size typed in for the line is shown instead of its drawn length, marked with *.
+  const lineDimText = l => l.real ? fmt(l.real) + '*' : fmt(rulerLength(l));
+
+  function lineDimSvg(l, selected) {
+    if (!rulerLength(l) || l.hideSize) return '';
+    return freeDimSvg([l.x1, l.y1], [l.x2, l.y2], lineDimSide(l), dimOffset(), lineDimText(l), selected);
+  }
+
+  // The dimension of a line under the pointer: its dimension line or its label.
+  function hitLineDim(p) {
+    if (!specialLayer('walls').visible) return null;
+    for (let i = doc.lines.length - 1; i >= 0; i--) {
+      const l = doc.lines[i];
+      if (!rulerLength(l) || l.hideSize) continue;
+      const n = lineDimSide(l), off = dimOffset(), size = doc.settings.dimFontSize;
+      const a = S(l.x1, l.y1), b = S(l.x2, l.y2), len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 10) continue;
+      const da = [a[0] + n[0] * off, a[1] + n[1] * off], db = [b[0] + n[0] * off, b[1] + n[1] * off];
+      if (distToSegment(p, da, db) <= 5) return l;
+      const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len], hw = lineDimText(l).length * size * 0.32 + 3;
+      const t = [(da[0] + db[0]) / 2 + n[0] * size * 0.82, (da[1] + db[1]) / 2 + n[1] * size * 0.82];
+      if (distToSegment(p, [t[0] - u[0] * hw, t[1] - u[1] * hw], [t[0] + u[0] * hw, t[1] + u[1] * hw]) <= size * 0.73) return l;
+    }
+    return null;
   }
 
   function hitLine(p) {
@@ -1465,7 +1490,7 @@
         for (const o of doc.openings) h.push(openingSvg(o, { selected: sel && sel.kind === 'opening' && sel.id === o.id }));
       } else if (layer.kind === 'dimensions') {
         for (const seg of visibleDims()) h.push(dimSvg(seg, !!sel && sel.kind === 'dim' && sel.key === seg.key));
-        if (specialLayer('walls').visible) for (const l of doc.lines) h.push(lineDimSvg(l, !!sel && sel.kind === 'line' && sel.id === l.id));
+        if (specialLayer('walls').visible) for (const l of doc.lines) h.push(lineDimSvg(l, !!sel && (sel.kind === 'line' || sel.kind === 'linedim') && sel.id === l.id));
         for (const o of doc.objects) if (o.measure && objLayer(o).visible) h.push(objectMeasuresSvg(o));
         for (const r of doc.rulers) h.push(rulerSvg(r, !!sel && sel.kind === 'ruler' && sel.id === r.id));
         for (const c of doc.compasses) h.push(compassSvg(c, !!sel && sel.kind === 'compass' && sel.id === c.id));
@@ -1553,7 +1578,7 @@
     if (sel.kind === 'comment') return doc.comments.find(c => c.id === sel.id) || null;
     if (sel.kind === 'compass') return doc.compasses.find(c => c.id === sel.id) || null;
     if (sel.kind === 'ruler') return doc.rulers.find(r => r.id === sel.id) || null;
-    if (sel.kind === 'line') return doc.lines.find(l => l.id === sel.id) || null;
+    if (sel.kind === 'line' || sel.kind === 'linedim') return doc.lines.find(l => l.id === sel.id) || null;
     if (sel.kind === 'dim') return allDims().find(d => d.key === sel.key) || null;
     return walls.segments.find(s => s.key === sel.key) || null;
   }
@@ -1755,6 +1780,7 @@
   const keyedNote = () => sel.kind + '|' + sel.key;
   function selectedDescription() {
     if (sel.kind === 'dim' || sel.kind === 'edge') return doc.descriptions[keyedNote()] || '';
+    if (sel.kind === 'linedim') return (selectedObject() || {}).dimDescription || '';
     const target = selectedObject();
     return (target && target.description) || '';
   }
@@ -1833,6 +1859,7 @@
       h = '<h3>Line</h3>' + field('Length', 'llen', rulerLength(obj)) +
         field('Start X', 'x1', obj.x1) + field('Start Y', 'y1', obj.y1) + field('End X', 'x2', obj.x2) + field('End Y', 'y2', obj.y2) +
         `<label class="check"><input type="checkbox" data-lhide${obj.hideSize ? ' checked' : ''}> Hide dimension on plan</label>` +
+        `<label class="field">Real size<input type="number" min="0" step="${UNITS[doc.units].step}" data-real placeholder="—" value="${obj.real ? fmt(obj.real) : ''}"><span>${doc.units}</span></label>` +
         '<p>Changing the length moves the end point. Drag an end square to move that end, or the line to move it all. An end on a wall face splits that wall\'s dimensions.</p>' +
         descriptionField() +
         '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
@@ -1885,6 +1912,13 @@
       if (!resolveOpening(obj).ok) h += '<p class="err">Not inside a wall — drag it onto one.</p>';
       h += descriptionField();
       h += '<div class="row"><button class="danger" data-act="delete">Delete</button></div>';
+    } else if (sel && sel.kind === 'linedim') {
+      h = `<h3>Line dimension</h3><p>Drawn: ${fmt(rulerLength(obj))} ${doc.units}</p>` +
+        `<label class="field">Real size<input type="number" min="0" step="${UNITS[doc.units].step}" data-real placeholder="—" value="${obj.real ? fmt(obj.real) : ''}"><span>${doc.units}</span></label>` +
+        '<p>A real size is shown instead of the drawn one, marked with *. It does not change the plan.</p>' +
+        `<div class="row">${obj.real ? '<button data-act="clearReal">Clear real size</button>' : ''}<button data-act="hideDim">Hide dimension</button></div>` +
+        '<p>To bring it back, select the line and untick “Hide dimension on plan”.</p>' +
+        descriptionField();
     } else if (sel && sel.kind === 'dim') {
       const real = realOf(obj);
       h = `<h3>Dimension</h3><p>Drawn: ${fmt(obj.len)} ${doc.units}</p>` +
@@ -2029,6 +2063,11 @@
         if (text) doc.descriptions[keyedNote()] = text; else delete doc.descriptions[keyedNote()];
         return 'doc';
       }
+      if (sel.kind === 'linedim') {
+        const l = selectedObject();
+        if (text) l.dimDescription = text; else delete l.dimDescription;
+        return 'doc';
+      }
       const target = selectedObject();
       if (!target) return null;
       if (text || sel.kind === 'object') target.description = text; else delete target.description;
@@ -2074,6 +2113,11 @@
       if (ds.tcol) { title.fontColor = withSide(title.fontColor, el); return 'doc'; }
     }
     if (ds.set) { applySetting(el); return 'doc'; }
+    if ('real' in ds && sel && (sel.kind === 'line' || sel.kind === 'linedim')) {
+      const mm = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor), l = selectedObject();
+      if (mm > 0) l.real = mm; else delete l.real;
+      return 'doc';
+    }
     if ('real' in ds && sel && sel.kind === 'dim') {
       const mm = Math.round((Number(el.value) || 0) * UNITS[doc.units].factor);
       if (mm > 0) doc.realDimensions[sel.key] = mm; else delete doc.realDimensions[sel.key];
@@ -2176,7 +2220,7 @@
     if (act === 'closeSettings') return settingsDlg.close();
     if (act === 'closeLayerPanel') layerPanel = null;
     if (act === 'clearLayerSettings') layerById(layerPanel).settings = {};
-    if (act === 'clearReal') delete doc.realDimensions[sel.key];
+    if (act === 'clearReal') { if (sel.kind === 'linedim') delete obj.real; else delete doc.realDimensions[sel.key]; }
     if (act === 'showDim') {
       setHidden([e.target.closest('[data-dim]').dataset.dim], false);
       previewDim = null;
@@ -2206,6 +2250,11 @@
     else if (sel.kind === 'ruler') doc.rulers = doc.rulers.filter(r => r.id !== sel.id);
     else if (sel.kind === 'line') doc.lines = doc.lines.filter(l => l.id !== sel.id);
     else if (sel.kind === 'opening') doc.openings = doc.openings.filter(o => o.id !== sel.id);
+    else if (sel.kind === 'linedim') {
+      selectedObject().hideSize = true;
+      sel = { kind: 'line', id: sel.id };
+      return commit();
+    }
     else if (sel.kind === 'dim') {
       const dim = selectedObject();
       setHidden([sel.key], true);
@@ -2518,6 +2567,11 @@
         if (mark) {
           sel = { kind: 'mark', id: mark.id };
           if (free) drag = { kind: 'movemark', o: mark, w0: w, orig: { x: mark.x, y: mark.y } };
+          return renderAll();
+        }
+        const lineDim = hitLineDim(p);
+        if (lineDim) {
+          sel = { kind: 'linedim', id: lineDim.id };
           return renderAll();
         }
         const dim = hitDim(p);
