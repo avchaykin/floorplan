@@ -2746,7 +2746,10 @@
       if (loc) { drag.o.x = loc.x; drag.o.y = loc.y; drag.o.axis = loc.axis; }
     }
     render();
+    // Positions, sizes and angles in the side panel follow the drag as it happens.
+    if (PANEL_DRAGS.includes(drag.kind)) renderPanel();
   });
+  const PANEL_DRAGS = ['moveobject', 'movemark', 'rotateobject', 'resizeobject', 'movevertex', 'resizecompass', 'rulerend', 'moveruler', 'movewall', 'resize', 'moveopening'];
 
   function endDrag() {
     const d = drag;
