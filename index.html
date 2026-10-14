@@ -124,17 +124,17 @@
     .layer-list .lname { flex: 1; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .layer-list .lkind { color: var(--muted); font-size: 11px; }
     .layer-list li.hidden-layer .lname { color: var(--muted); text-decoration: line-through; }
-    #panel .field em { font-style: normal; }
-    #panel .field.pair { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; margin-bottom: 6px; }
-    #panel .sides { display: flex; gap: 4px; }
-    #panel .side { display: flex; align-items: center; gap: 2px; padding: 1px 0 1px 2px; border: 1px solid transparent; border-radius: 6px; }
-    #panel .side.now { border-color: var(--border); background: var(--hover); }
-    #panel .side i { width: 12px; font-style: normal; font-size: 11px; text-align: center; color: var(--muted); }
-    #panel .side input[type=color] { width: 30px; height: 22px; padding: 1px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
-    #panel .side.auto input[type=color] { border-style: dashed; opacity: .7; }
-    #panel .side button { padding: 0 3px; border: none; background: none; color: var(--accent); }
-    #panel .side button:disabled { visibility: hidden; }
-    #panel label.field b.ovr { color: var(--accent); font-size: 9px; vertical-align: 1px; }
+    :is(#panel, #settingsBody) .field em { font-style: normal; }
+    :is(#panel, #settingsBody) .field.pair { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; margin-bottom: 6px; }
+    :is(#panel, #settingsBody) .sides { display: flex; gap: 4px; }
+    :is(#panel, #settingsBody) .side { display: flex; align-items: center; gap: 2px; padding: 1px 0 1px 2px; border: 1px solid transparent; border-radius: 6px; }
+    :is(#panel, #settingsBody) .side.now { border-color: var(--border); background: var(--hover); }
+    :is(#panel, #settingsBody) .side i { width: 12px; font-style: normal; font-size: 11px; text-align: center; color: var(--muted); }
+    :is(#panel, #settingsBody) .side input[type=color] { width: 30px; height: 22px; padding: 1px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+    :is(#panel, #settingsBody) .side.auto input[type=color] { border-style: dashed; opacity: .7; }
+    :is(#panel, #settingsBody) .side button { padding: 0 3px; border: none; background: none; color: var(--accent); }
+    :is(#panel, #settingsBody) .side button:disabled { visibility: hidden; }
+    :is(#panel, #settingsBody) label.field b.ovr { color: var(--accent); font-size: 9px; vertical-align: 1px; }
     #jsonPane { grid-area: json; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border-left: 1px solid var(--border); }
     #jsonPane[hidden] { display: none; }
     #jsonResize { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 1; }
@@ -170,25 +170,25 @@
     #calcKeys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
     #calcKeys button { padding: 5px 0; }
     #calcKeys button.primary:hover { background: var(--accent); filter: brightness(1.1); }
-    #panel h3 { margin: 0 0 10px; font-size: 13px; }
-    #panel p { margin: 0 0 10px; color: var(--muted); }
-    #panel label.field { display: grid; grid-template-columns: 1fr 78px 22px; align-items: center; gap: 6px; margin-bottom: 6px; }
-    #panel label.field input { width: 100%; text-align: right; }
-    #panel label.field select, #panel label.field input[type=text] { width: 100%; grid-column: 2 / 4; }
-    #panel label.field input[type=text] { text-align: left; }
-    #panel label.field input[type=color] { height: 26px; padding: 2px; }
-    #panel h4 { margin: 14px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-    #panel label.field span { color: var(--muted); }
-    #panel label.note { display: grid; gap: 4px; margin: 10px 0 6px; }
-    #panel label.note textarea { width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; font: inherit; color: inherit; resize: vertical; }
-    #panel p.locked { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--hover); color: var(--text); }
-    #panel table.measure { width: 100%; margin-bottom: 8px; border-collapse: collapse; }
-    #panel table.measure th { font-weight: 400; color: var(--muted); font-size: 11px; }
-    #panel table.measure td, #panel table.measure th { padding: 2px 0; text-align: center; }
-    #panel table.measure td:first-child { text-align: left; }
-    #panel label.check { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
-    #panel .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
-    #panel .row button { flex: 1 1 auto; }
+    :is(#panel, #settingsBody) h3 { margin: 0 0 10px; font-size: 13px; }
+    :is(#panel, #settingsBody) p { margin: 0 0 10px; color: var(--muted); }
+    :is(#panel, #settingsBody) label.field { display: grid; grid-template-columns: 1fr 78px 22px; align-items: center; gap: 6px; margin-bottom: 6px; }
+    :is(#panel, #settingsBody) label.field input { width: 100%; text-align: right; }
+    :is(#panel, #settingsBody) label.field select, :is(#panel, #settingsBody) label.field input[type=text] { width: 100%; grid-column: 2 / 4; }
+    :is(#panel, #settingsBody) label.field input[type=text] { text-align: left; }
+    :is(#panel, #settingsBody) label.field input[type=color] { height: 26px; padding: 2px; }
+    :is(#panel, #settingsBody) h4 { margin: 14px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    :is(#panel, #settingsBody) label.field span { color: var(--muted); }
+    :is(#panel, #settingsBody) label.note { display: grid; gap: 4px; margin: 10px 0 6px; }
+    :is(#panel, #settingsBody) label.note textarea { width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; font: inherit; color: inherit; resize: vertical; }
+    :is(#panel, #settingsBody) p.locked { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--hover); color: var(--text); }
+    :is(#panel, #settingsBody) table.measure { width: 100%; margin-bottom: 8px; border-collapse: collapse; }
+    :is(#panel, #settingsBody) table.measure th { font-weight: 400; color: var(--muted); font-size: 11px; }
+    :is(#panel, #settingsBody) table.measure td, :is(#panel, #settingsBody) table.measure th { padding: 2px 0; text-align: center; }
+    :is(#panel, #settingsBody) table.measure td:first-child { text-align: left; }
+    :is(#panel, #settingsBody) label.check { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+    :is(#panel, #settingsBody) .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+    :is(#panel, #settingsBody) .row button { flex: 1 1 auto; }
     .gfont-add { display: flex; gap: 6px; margin-bottom: 8px; }
     .gfont-add input { flex: 1; min-width: 0; }
     details.fold > summary { margin-bottom: 8px; font-weight: 600; cursor: pointer; user-select: none; }
@@ -215,6 +215,18 @@
 
     dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 300px; }
     dialog::backdrop { background: rgba(0, 0, 0, .3); }
+    #settingsDlg { width: min(960px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; display: none; flex-direction: column; }
+    #settingsDlg[open] { display: flex; }
+    #settingsDlg::backdrop { background: rgba(0, 0, 0, .12); }
+    .settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .settings-head h3 { margin: 0; }
+    .settings-head button { padding: 2px 8px; }
+    #settingsBody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px 14px; }
+    .settings-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 0 24px; }
+    .settings-cols section > h4:first-child { margin-top: 4px; }
+    .settings-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .settings-foot p { flex: 1; margin: 0 !important; }
+    #settingsBody label + label { margin-top: 0; }
     dialog h3 { margin: 0 0 12px; }
     dialog label { display: grid; gap: 4px; }
     dialog label + label { margin-top: 10px; }
@@ -330,6 +342,11 @@
     <span id="coords"></span>
     <span id="hint"></span>
   </footer>
+
+  <dialog id="settingsDlg" aria-label="Settings">
+    <div class="settings-head"><h3>Settings</h3><button id="settingsClose" title="Close" aria-label="Close">×</button></div>
+    <div id="settingsBody"></div>
+  </dialog>
 
   <dialog id="exportDlg">
     <form method="dialog">

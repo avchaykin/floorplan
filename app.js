@@ -264,7 +264,7 @@
   const MEASURE_TYPES = ['size', 'object', 'wall'];
 
   // Object settings a layer may override; everything else is plan-wide.
-  const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
+  const OBJ_SETTING_KEYS = ['objFont', 'objFontSize', 'objFontColor', 'objLabelMinSize', 'objFillStyle', 'objFillColor', 'objHatchSpacing', 'objBorderSize', 'objBorderColor'];
 
   // Title settings can be overridden on every layer, special ones included.
   const TITLE_SETTING_KEYS = ['titleFont', 'titleFontSize', 'titleFontColor'];
@@ -306,7 +306,7 @@
 
   // Appearance settings, stored with each plan.
   function defaultSettings() {
-    const out = { titleFont: 'system', titleFontSize: 18, wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8 };
+    const out = { titleFont: 'system', titleFontSize: 18, wallColor: '#4d4d4d', dimEnds: 'dot', dimColor: '#5f6b7a', dimFont: 'system', dimFontSize: 11, dimFontColor: '#5f6b7a', dimDistance: 100, objFont: 'system', objFontSize: 11, objFontColor: '#5f6b7a', googleFonts: [], objFillStyle: 'solid', objFillColor: '#ffffff', objBorderSize: 1.2, objBorderColor: '#2b2b2b', objHatchSpacing: 8, objLabelMinSize: 0 };
     for (const k of Object.keys(THEME_COLOURS)) out[k] = { light: null, dark: null };   // colours: automatic, i.e. from the theme
     return out;
   }
@@ -362,6 +362,7 @@
     const out = defaultSettings(), src = raw || {};
     for (const k of COLOUR_KEYS) out[k] = toPair(src[k], OLD_DEFAULT_COLOURS[k]);
     if (Number.isFinite(src.objBorderSize)) out.objBorderSize = Math.min(Math.max(Math.round(src.objBorderSize * 10) / 10, 0), 10);
+    if (Number.isFinite(src.objLabelMinSize)) out.objLabelMinSize = Math.min(Math.max(Math.round(src.objLabelMinSize), 0), 100000);
     if (Number.isFinite(src.objHatchSpacing)) out.objHatchSpacing = Math.min(Math.max(Math.round(src.objHatchSpacing), 3), 60);
     if (FILLS[src.objFillStyle]) out.objFillStyle = src.objFillStyle;
     if (DIM_ENDS[src.dimEnds]) out.dimEnds = src.dimEnds;
@@ -525,7 +526,6 @@
   let walls = Geo.buildWalls([]);
   let history = [], hIndex = -1;
   let tool = 'select';
-  let showSettings = false;   // side panel shows the plan settings
   let layerPanel = null;      // id of the layer whose settings the side panel shows
   let activeLayer = null;     // id of the layer highlighted in the Layers list; new objects go to it
   let sel = null;       // {kind: 'wall'|'opening', id} | {kind: 'dim'|'edge', key}
@@ -873,7 +873,9 @@
     const size = st.objFontSize, showName = !!o.name && !o.hideName;
     const lines = [showName && o.name, !o.hideSize && `${fmt(o.w)} × ${fmt(o.h)}`].filter(Boolean);
     const fits = n => ph >= n * size * 1.25 + 4 && lines.slice(0, n).every(t => pw >= t.length * size * (showName && t === o.name ? 0.66 : 0.6) + 6);
-    const count = fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
+    // Below the minimum size (its shorter side, in mm) an object shows no text at all.
+    const big = Math.min(o.w, o.h) >= st.objLabelMinSize;
+    const count = !big ? 0 : fits(lines.length) ? lines.length : fits(1) ? 1 : 0;
     for (let i = 0; i < count; i++) {
       const y = (i - (count - 1) / 2) * size * 1.25;
       g += `<text x="0" y="${f(y)}" style="font-family:${fontCss(st.objFont)};font-size:${size}px${i === 0 && showName ? ';font-weight:700' : ''}" text-anchor="middle" dominant-baseline="central" fill="${selected ? ACCENT : st.objFontColor}"${hatched ? ' stroke="${PAPER}" stroke-width="4" paint-order="stroke"' : ''}>${esc(lines[i])}</text>`;
@@ -1580,6 +1582,8 @@
         const { own, chain } = pairsOf(key);
         return colourRow(label, attr, key, own, chain, THEME_COLOURS[key], !!overridden && overridden.has(key));
       },
+      // A length is stored in mm and shown in the plan's unit.
+      length: (key, label) => wrap(key, label, `<input type="number" ${attr}="${key}" data-len min="0" step="${UNITS[doc.units].step}" value="${fmt(values[key])}">`, doc.units),
       number: (key, label, min, max, unit, step) => wrap(key, label, `<input type="number" ${attr}="${key}" min="${min}" max="${max}" step="${step || 1}" value="${values[key]}">`, unit),
       choice: (key, label, options) => wrap(key, label, `<select ${attr}="${key}">${options.map(([v, t]) => `<option value="${esc(v)}"${values[key] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`),
     };
@@ -1590,7 +1594,7 @@
     c.number('dimDistance', 'Distance from wall', 20, 500, '%');
   const titleSettingRows = c => c.choice('titleFont', 'Font', fontChoices()) + c.number('titleFontSize', 'Font size', 6, 200, 'px') + c.colour('titleFontColor', 'Font colour');
   const objectSettingRows = c => c.choice('objFont', 'Font', fontChoices()) + c.number('objFontSize', 'Font size', 6, 40, 'px') +
-    c.colour('objFontColor', 'Font colour') + c.choice('objFillStyle', 'Fill style', Object.entries(FILLS)) + c.colour('objFillColor', 'Fill colour') +
+    c.colour('objFontColor', 'Font colour') + c.length('objLabelMinSize', 'No text below') + c.choice('objFillStyle', 'Fill style', Object.entries(FILLS)) + c.colour('objFillColor', 'Fill colour') +
     c.number('objHatchSpacing', 'Hatch spacing', 3, 60, 'px') + c.number('objBorderSize', 'Border size', 0, 10, 'px', 0.5) + c.colour('objBorderColor', 'Border colour');
 
   function layerPanelHtml(layer) {
@@ -1713,7 +1717,6 @@
       doc.layers.splice(j, 0, layer);
     } else if (act === 'settings') {
       layerPanel = layerPanel === activeLayer ? null : activeLayer;
-      showSettings = false;
       sel = null;
       if (tool !== 'select') { const keep = layerPanel; setTool('select'); layerPanel = keep; }
       return renderAll();
@@ -1761,27 +1764,11 @@
       const layer = selLayer();
       if (layer && !layer.visible) sel = null;
     }
-    if (sel || tool !== 'select') { showSettings = false; layerPanel = null; }
+    if (sel || tool !== 'select') layerPanel = null;
     if (layerPanel && !layerById(layerPanel)) layerPanel = null;
     let h;
     if (layerPanel) {
       h = layerPanelHtml(layerById(layerPanel));
-    } else if (showSettings) {
-      const st = doc.settings, c = settingControls(st, 'data-set', null, planPairs);
-      h = '<h3>Settings</h3>' +
-        '<p>Each colour has a light-mode (☀) and a dark-mode (☾) value: pick one and the other is derived from it, or pick both. A dashed swatch is automatic; ↺ makes a picked one automatic again.</p>' +
-        '<h4>Walls</h4>' + wallSettingRows(c) +
-        '<h4>Dimensions</h4>' + dimSettingRows(c) +
-        '<h4>Objects</h4>' + objectSettingRows(c) +
-        '<h4>Titles</h4>' + titleSettingRows(c) +
-        '<p>Object settings can also be set per layer (select a layer, then the cog).</p>' +
-        '<h4>Google Fonts</h4>' +
-        '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
-        (st.googleFonts.length ? '<ul class="hidden-dims">' + st.googleFonts.map(n =>
-          `<li><span style="font-family:${fontCss('g:' + n)}">${n}</span><button data-act="removeGoogleFont" data-font="${n}">Remove</button></li>`).join('') + '</ul>' : '') +
-        '<p>Added fonts appear in the Font lists above. They are loaded from Google, so they need an internet connection.</p>' +
-        '<p>Settings are saved with this plan. New plans start with the same settings.</p>' +
-        '<div class="row"><button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
     } else if (OPENING_TOOLS.includes(tool)) {
       h = `<h3>New ${TITLES[tool].toLowerCase()}</h3>${openingFields(tool, defaults[tool])}<p>Click on a wall to place it. The side of the wall you click on sets the ${tool === 'window' ? 'sill side' : 'opening direction'}.</p>`;
     } else if (tool === 'comment') {
@@ -1923,7 +1910,7 @@
       h += '</details>';
     }
     // Rebuilding replaces every control, so keep the keyboard focus on the same field afterwards.
-    const view = JSON.stringify([tool, sel, showSettings, layerPanel, selLocked()]);
+    const view = JSON.stringify([tool, sel, layerPanel, selLocked()]);
     const active = panel.contains(document.activeElement) ? document.activeElement : null;
     // A dropdown or colour picker that was just opened would be closed by a rebuild; it refreshes on its own change.
     if (active && active !== panelSource && view === panelView && (active.tagName === 'SELECT' || active.type === 'color')) return;
@@ -1945,18 +1932,58 @@
     }
   }
 
+  // ---------- Settings window ----------
+  // Plan settings in a window of two or three columns; changes show on the plan behind it as they are made.
+
+  const settingsDlg = $('#settingsDlg'), settingsBody = $('#settingsBody');
+  function settingsHtml() {
+    const st = doc.settings, c = settingControls(st, 'data-set', null, planPairs);
+    return '<p>Each colour has a light-mode (☀) and a dark-mode (☾) value: pick one and the other is derived from it, or pick both. A dashed swatch is automatic; ↺ makes a picked one automatic again.</p>' +
+      '<div class="settings-cols">' +
+      '<section><h4>Walls</h4>' + wallSettingRows(c) + '<h4>Dimensions</h4>' + dimSettingRows(c) + '</section>' +
+      '<section><h4>Objects</h4>' + objectSettingRows(c) +
+      '<p>“No text below”: objects whose shorter side is smaller than this show neither name nor size. 0 shows text whenever it fits.</p>' +
+      '<p>Object settings can also be set per layer (select a layer, then the cog).</p></section>' +
+      '<section><h4>Titles</h4>' + titleSettingRows(c) +
+      '<h4>Google Fonts</h4>' +
+      '<div class="gfont-add"><input type="text" data-gfont placeholder="Font name, e.g. Roboto" autocomplete="off" spellcheck="false"><button data-act="addGoogleFont">Add</button></div>' +
+      (st.googleFonts.length ? '<ul class="hidden-dims">' + st.googleFonts.map(n =>
+        `<li><span style="font-family:${fontCss('g:' + n)}">${n}</span><button data-act="removeGoogleFont" data-font="${n}">Remove</button></li>`).join('') + '</ul>' : '') +
+      '<p>Added fonts appear in the Font lists. They are loaded from Google, so they need an internet connection.</p></section>' +
+      '</div>' +
+      '<div class="settings-foot"><p>Settings are saved with this plan. New plans start with the same settings.</p>' +
+      '<button data-act="resetSettings">Reset to defaults</button><button data-act="closeSettings" class="primary">Done</button></div>';
+  }
+  function renderSettings() {
+    if (!settingsDlg.open) return;
+    const active = settingsBody.contains(document.activeElement) ? document.activeElement : null;
+    // An open dropdown or colour picker would be closed by a redraw; it refreshes on its own change.
+    if (active && active !== panelSource && (active.tagName === 'SELECT' || active.type === 'color')) return;
+    const key = active && controlKey(active), scroll = settingsBody.scrollTop;
+    const caret = active && active.type === 'text' ? [active.selectionStart, active.selectionEnd] : null;
+    settingsBody.innerHTML = settingsHtml();
+    settingsBody.scrollTop = scroll;
+    const again = key && settingsBody.querySelector(key);
+    if (again) {
+      again.focus();
+      if (caret) again.setSelectionRange(caret[0], caret[1]);
+      else if (again.type === 'number') again.select();
+    }
+  }
+
   // A colour input edits one side of a pair; the other side is left as it is.
   const withSide = (pair, input) => Object.assign(toPair(pair), { [input.dataset.side]: input.value });
 
+  const settingValue = input => 'len' in input.dataset ? Number(input.value) * UNITS[doc.units].factor : input.type === 'number' ? Number(input.value) : input.value;
   function applyLayerSetting(input) {
     const layer = layerById(layerPanel), key = input.dataset.lset;
     if (input.dataset.side) { layer.settings[key] = withSide(layer.settings[key], input); return; }
-    const value = input.type === 'number' ? Number(input.value) : input.value;
+    const value = settingValue(input);
     layer.settings[key] = cleanSettings(Object.assign({}, doc.settings, { [key]: value }))[key];
   }
   function applySetting(input) {
     const key = input.dataset.set;
-    const value = input.dataset.side ? withSide(doc.settings[key], input) : input.type === 'number' ? Number(input.value) : input.value;
+    const value = input.dataset.side ? withSide(doc.settings[key], input) : settingValue(input);
     doc.settings = cleanSettings(Object.assign({}, doc.settings, { [key]: value }));
   }
   function applyObjectFill(input) {
@@ -2058,8 +2085,9 @@
     return toolMode ? 'defaults' : 'doc';
   }
 
+  const onControls = (type, fn) => { panel.addEventListener(type, fn); settingsBody.addEventListener(type, fn); };
   // Every keystroke updates the plan at once; the panel itself is left alone so the field keeps focus.
-  panel.addEventListener('input', e => {
+  onControls('input', e => {
     const changed = applyPanelInput(e.target, true);
     if (changed === 'doc') { liveDirty = true; rebuild(); renderLayers(); render(); }
     else if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
@@ -2069,7 +2097,7 @@
 
   // Leaving the field (or Enter) makes the edit final: one undo step, saved, panel refreshed.
   // Only the panel refresh waits a tick so that, when the user is moving to another field, focus has landed there first.
-  panel.addEventListener('change', e => {
+  onControls('change', e => {
     const src = e.target, changed = applyPanelInput(src, false);
     if (!changed) return;
     if (changed === 'defaults') localStorage.setItem(DEFAULTS_KEY, JSON.stringify(defaults));
@@ -2077,6 +2105,7 @@
     setTimeout(() => {
       panelSource = src;
       renderPanel();
+      renderSettings();
       render();
       panelSource = null;
     }, 0);
@@ -2084,7 +2113,7 @@
 
   // Clicking anywhere outside the panel also makes typed changes final, even if the field never reports a change.
   document.addEventListener('pointerdown', e => {
-    if (!liveDirty || panel.contains(e.target)) return;
+    if (!liveDirty || panel.contains(e.target) || settingsDlg.contains(e.target)) return;
     liveDirty = false;
     commit();
   }, true);
@@ -2103,15 +2132,15 @@
   // toggle does not bubble, so it is caught on the way down; the state survives panel redraws
   panel.addEventListener('toggle', e => { if (e.target.dataset.fold === 'hiddenDims') hiddenDimsOpen = e.target.open; }, true);
 
-  panel.addEventListener('keydown', e => {
+  onControls('keydown', e => {
     if (e.key === 'Enter' && 'gfont' in e.target.dataset) { e.preventDefault(); addGoogleFont(e.target.value); }
   });
 
-  panel.addEventListener('click', e => {
+  onControls('click', e => {
     const act = e.target.dataset.act;
     if (!act) return;
     const obj = selectedObject();
-    if (act === 'addGoogleFont') return addGoogleFont(panel.querySelector('[data-gfont]').value);
+    if (act === 'addGoogleFont') return addGoogleFont(e.currentTarget.querySelector('[data-gfont]').value);
     if (act === 'removeGoogleFont') {
       // cleanSettings puts any font that used the removed family back to the system font
       doc.settings = cleanSettings(Object.assign({}, doc.settings, { googleFonts: doc.settings.googleFonts.filter(n => n !== e.target.dataset.font) }));
@@ -2139,7 +2168,7 @@
     if (act === 'rotateLeft') obj.rot = normAngle(obj.rot - 90);
     if (act === 'rotateRight') obj.rot = normAngle(obj.rot + 90);
     if (act === 'resetSettings') doc.settings = defaultSettings();
-    if (act === 'closeSettings') showSettings = false;
+    if (act === 'closeSettings') return settingsDlg.close();
     if (act === 'closeLayerPanel') layerPanel = null;
     if (act === 'clearLayerSettings') layerById(layerPanel).settings = {};
     if (act === 'clearReal') delete doc.realDimensions[sel.key];
@@ -2219,7 +2248,7 @@
     loadGoogleFonts();
     renderLevels();
     renderLayers();
-    if (!keepPanel) renderPanel();   // may drop a selection that is no longer allowed, so it runs before drawing
+    if (!keepPanel) { renderPanel(); renderSettings(); }   // may drop a selection that is no longer allowed, so it runs before drawing
     render();
     syncUnits();
     refreshJson();
@@ -2750,13 +2779,12 @@
     if (b) setTool(b.dataset.tool);
   });
   $('#btnSettings').onclick = () => {
-    const open = !showSettings;
-    sel = null;
-    layerPanel = null;
-    if (tool !== 'select') setTool('select');
-    showSettings = open;
-    renderAll();
+    settingsDlg.showModal();
+    renderSettings();
   };
+  $('#settingsClose').onclick = () => settingsDlg.close();
+  // Typed values that were applied live become one undo step when the window closes.
+  settingsDlg.addEventListener('close', () => { if (liveDirty) { liveDirty = false; commit(); } });
   $('#btnMode').onclick = () => {
     appearance.mode = currentMode() === 'dark' ? 'light' : 'dark';
     localStorage.setItem('floorplan-appearance', JSON.stringify(appearance));
@@ -3044,6 +3072,7 @@
   let toastTimer = null;
   function toast(text) {
     const el = $('#toast');
+    (settingsDlg.open ? settingsDlg : document.body).appendChild(el);
     el.textContent = text;
     el.hidden = false;
     clearTimeout(toastTimer);

@@ -41,6 +41,8 @@ An internet connection is needed only for Google Fonts, if you add any.
 - Fixed Walls and Dimensions layers, plus any number of object layers.
 - A layer can be hidden, or frozen (selectable but read-only). Layer order is the drawing order.
 - Object and title defaults can be set for the whole plan or per layer.
+- Plan settings open in their own window (Settings button), laid out in columns; changes show on the plan straight away.
+- Objects smaller than a set size (their shorter side) can show no text at all.
 
 **Appearance**
 - Light and dark mode. Every colour has a light and a dark value; set one and the other is derived, or set both.
