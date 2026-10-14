@@ -381,7 +381,7 @@
   const SNAPS = [1, 5, 10, 50, 100];
   // Written into every saved plan so a file can be traced back to the app that produced it.
   // `commit` is the commit this version was built on: a file cannot contain its own hash, so bump both when releasing.
-  const APP = { name: 'Floorplan', version: '1.1', commit: '12b8097', repository: 'https://github.com/avchaykin/floorplan' };
+  const APP = { name: 'Floorplan', version: '1.2', commit: 'cceee2b', repository: 'https://github.com/avchaykin/floorplan' };
   const DRAFT_KEY = 'floorplan-draft', DEFAULTS_KEY = 'floorplan-defaults', LAST_FILE_KEY = 'floorplan-last-file';
 
   // ---------- Document ----------
